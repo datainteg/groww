@@ -1,0 +1,38 @@
+# Flask
+flask==3.0.0
+flask-cors==4.0.0
+flask-jwt-extended==4.6.0
+werkzeug==3.0.1
+
+# Database
+pymongo==4.6.1
+redis==5.0.1
+
+# HTTP & API
+requests==2.31.0
+aiohttp==3.9.1
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Technical Analysis
+ta==0.11.0
+
+# Security
+cryptography==41.0.7
+python-dotenv==1.0.0
+
+# Scheduling
+apscheduler==3.10.4
+
+# Telegram
+python-telegram-bot==20.7
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2024.1
+
+# WebSocket (optional)
+python-socketio==5.10.0
+eventlet==0.34.2

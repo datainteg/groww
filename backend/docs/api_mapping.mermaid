@@ -1,0 +1,143 @@
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+
+flowchart LR
+    subgraph FRONTEND["🖥️ FRONTEND (React)"]
+        subgraph PAGES["Pages"]
+            P1["Login.tsx"]
+            P2["Dashboard.tsx"]
+            P3["Strategy.tsx"]
+            P4["Trades.tsx"]
+            P5["Settings.tsx"]
+            P6["Profile.tsx"]
+        end
+        
+        subgraph APIS["API Modules"]
+            A1["auth.api.ts"]
+            A2["market.api.ts"]
+            A3["strategy.api.ts"]
+            A4["trade.api.ts"]
+            A5["settings.api.ts"]
+        end
+        
+        subgraph STORES["Zustand Stores"]
+            ST1["auth.store.ts"]
+            ST2["market.store.ts"]
+            ST3["strategy.store.ts"]
+            ST4["trade.store.ts"]
+            ST5["ui.store.ts"]
+        end
+    end
+
+    subgraph BACKEND["⚙️ BACKEND (Flask)"]
+        subgraph AUTH_ROUTES["auth_routes.py"]
+            AR1["POST /api/auth/register"]
+            AR2["POST /api/auth/login"]
+            AR3["GET /api/auth/me"]
+            AR4["GET /api/auth/profile"]
+            AR5["POST /api/auth/update-groww-credentials"]
+            AR6["POST /api/auth/refresh-token"]
+        end
+        
+        subgraph MARKET_ROUTES["market_routes.py"]
+            MR1["GET /api/market/status"]
+            MR2["GET /api/market/indices"]
+            MR3["GET /api/market/ltp/:symbol"]
+            MR4["GET /api/market/quote/:symbol"]
+            MR5["GET /api/market/option-chain/:underlying"]
+        end
+        
+        subgraph INSTRUMENT_ROUTES["instruments_routes.py"]
+            IR1["POST /api/instruments/sync"]
+            IR2["GET /api/instruments/list"]
+            IR3["GET /api/instruments/search"]
+            IR4["GET /api/instruments/expiries/:underlying"]
+            IR5["GET /api/instruments/atm/:underlying/:expiry"]
+            IR6["GET /api/instruments/greeks/:symbol"]
+        end
+        
+        subgraph STRATEGY_ROUTES["strategy_routes.py"]
+            SR1["POST /api/strategy/create"]
+            SR2["GET /api/strategy/list"]
+            SR3["GET /api/strategy/:id"]
+            SR4["PUT /api/strategy/:id"]
+            SR5["DELETE /api/strategy/:id"]
+            SR6["POST /api/strategy/:id/start"]
+            SR7["POST /api/strategy/:id/stop"]
+            SR8["GET /api/strategy/status"]
+            SR9["GET /api/strategy/decision"]
+        end
+        
+        subgraph TRADE_ROUTES["trade_routes.py"]
+            TR1["POST /api/trade/place-order"]
+            TR2["GET /api/trade/orders"]
+            TR3["GET /api/trade/positions"]
+            TR4["GET /api/trade/trades"]
+            TR5["GET /api/trade/active-trades"]
+            TR6["GET /api/trade/daily-pnl"]
+            TR7["GET /api/trade/statistics"]
+            TR8["POST /api/trade/journal/:id"]
+        end
+        
+        subgraph SETTINGS_ROUTES["settings_routes.py"]
+            STR1["GET /api/settings/"]
+            STR2["PUT /api/settings/"]
+            STR3["POST /api/settings/telegram"]
+            STR4["POST /api/settings/kill-switch"]
+        end
+    end
+
+    subgraph GROWW["🌐 GROWW API"]
+        GR1["POST /v1/token/api/access"]
+        GR2["GET /v1/live-data/ltp"]
+        GR3["GET /v1/live-data/quote"]
+        GR4["GET /v1/option-chain"]
+        GR5["POST /v1/order/create"]
+        GR6["GET /v1/order/status"]
+        GR7["CSV instruments download"]
+    end
+
+    %% Frontend to API connections
+    P1 --> A1
+    P2 --> A2
+    P2 --> A3
+    P3 --> A3
+    P3 --> A2
+    P4 --> A4
+    P5 --> A5
+    P6 --> A1
+
+    %% API to Store connections
+    A1 --> ST1
+    A2 --> ST2
+    A3 --> ST3
+    A4 --> ST4
+    A5 --> ST5
+
+    %% Frontend API to Backend routes
+    A1 --> AUTH_ROUTES
+    A2 --> MARKET_ROUTES
+    A2 --> INSTRUMENT_ROUTES
+    A3 --> STRATEGY_ROUTES
+    A4 --> TRADE_ROUTES
+    A5 --> SETTINGS_ROUTES
+
+    %% Backend to Groww
+    AR2 --> GR1
+    AR5 --> GR1
+    MR3 --> GR2
+    MR4 --> GR3
+    MR5 --> GR4
+    IR1 --> GR7
+    IR6 --> GR4
+    TR1 --> GR5
+    TR2 --> GR6
+
+    classDef frontend fill:#3b82f6,stroke:#60a5fa,color:#fff
+    classDef backend fill:#10b981,stroke:#34d399,color:#fff
+    classDef groww fill:#ec4899,stroke:#f472b6,color:#fff
+
+    class P1,P2,P3,P4,P5,P6,A1,A2,A3,A4,A5,ST1,ST2,ST3,ST4,ST5 frontend
+    class AR1,AR2,AR3,AR4,AR5,AR6,MR1,MR2,MR3,MR4,MR5,IR1,IR2,IR3,IR4,IR5,IR6,SR1,SR2,SR3,SR4,SR5,SR6,SR7,SR8,SR9,TR1,TR2,TR3,TR4,TR5,TR6,TR7,TR8,STR1,STR2,STR3,STR4 backend
+    class GR1,GR2,GR3,GR4,GR5,GR6,GR7 groww
+```

@@ -1,0 +1,128 @@
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+
+flowchart TB
+    subgraph TRADING_FLOW["📈 COMPLETE TRADING FLOW"]
+        direction TB
+        
+        subgraph STEP1["1️⃣ DAILY STARTUP (8:00 AM)"]
+            D1["Scheduler triggers<br/>instrument_sync"]
+            D2["Download CSV from Groww<br/>growwapi-assets.groww.in"]
+            D3["Filter F&O instruments<br/>NIFTY, BANKNIFTY, SENSEX"]
+            D4["Keep current 3 expiries only"]
+            D5["Bulk upsert to MongoDB"]
+            D1 --> D2 --> D3 --> D4 --> D5
+        end
+
+        subgraph STEP2["2️⃣ USER LOGIN (9:00 AM)"]
+            L1["Enter Email + Password"]
+            L2["Enter Groww API Key + Secret"]
+            L3["Generate checksum<br/>SHA256(secret + timestamp)"]
+            L4["POST to Groww Token API"]
+            L5["Store encrypted token<br/>Expiry: 6 AM next day"]
+            L6["Return JWT to frontend"]
+            L1 --> L2 --> L3 --> L4 --> L5 --> L6
+        end
+
+        subgraph STEP3["3️⃣ STRATEGY SETUP"]
+            S1["Select Index: NIFTY"]
+            S2["Auto-fetch expiries<br/>from instruments collection"]
+            S3["Select expiry date"]
+            S4["Get spot price from Groww"]
+            S5["Auto-select ATM strike"]
+            S6["Set CE & PE symbols"]
+            S7["Configure parameters:<br/>Qty, SL, Target, Trailing"]
+            S8["Save strategy to MongoDB"]
+            S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
+        end
+
+        subgraph STEP4["4️⃣ MARKET ANALYSIS (Every 5 sec)"]
+            M1["Fetch candle data"]
+            M2["Run 67 Indicator Analysis"]
+            
+            subgraph INDICATORS["67 INDICATORS"]
+                I1["Momentum (25%)<br/>RSI, MACD, Stochastic, ADX<br/>Williams %R, CCI, ROC"]
+                I2["Volatility (15%)<br/>ATR, Bollinger, Keltner<br/>Donchian, India VIX"]
+                I3["Trend (25%)<br/>EMA 9/21/50, VWAP<br/>Ichimoku, ADX"]
+                I4["S/R (15%)<br/>Pivot Points, Fibonacci<br/>Support, Resistance"]
+                I5["Patterns (30%)<br/>Candlestick: Doji, Hammer<br/>Harmonic: Gartley, Bat<br/>Primary: Head&Shoulders"]
+            end
+            
+            M3["Calculate weighted score"]
+            M4["Generate Signal<br/>BULLISH / BEARISH / NEUTRAL"]
+            M5["Confidence >= 70%?"]
+            
+            M1 --> M2 --> INDICATORS --> M3 --> M4 --> M5
+        end
+
+        subgraph STEP5["5️⃣ TRADE EXECUTION"]
+            E1{"Confidence >= 70%<br/>AND Market Open?"}
+            E2["Check Risk Limits<br/>Daily orders, P&L limits"]
+            E3{"PAPER or LIVE?"}
+            
+            subgraph PAPER["PAPER MODE"]
+                P1["Get LTP from Groww API"]
+                P2["Simulate entry at LTP"]
+                P3["Record in MongoDB<br/>execution_mode='PAPER'"]
+                P4["No real order placed"]
+            end
+            
+            subgraph LIVE["LIVE MODE"]
+                LV1["Place order via Groww<br/>POST /v1/order/create"]
+                LV2["Get order_id"]
+                LV3["Poll order status"]
+                LV4["Record filled price"]
+            end
+            
+            E1 -->|Yes| E2 --> E3
+            E3 -->|PAPER| PAPER
+            E3 -->|LIVE| LIVE
+            E1 -->|No| SKIP["Skip signal"]
+        end
+
+        subgraph STEP6["6️⃣ POSITION MONITORING (Every 5 sec)"]
+            MON1["Get current LTP"]
+            MON2["Check Stop Loss hit?"]
+            MON3["Check Target hit?"]
+            MON4["Check Partial Target (50%)?"]
+            MON5["Update Trailing SL?"]
+            MON6["Move to Break-even?"]
+            MON7["Time exit (3:20 PM)?"]
+            
+            MON1 --> MON2 --> MON3 --> MON4 --> MON5 --> MON6 --> MON7
+        end
+
+        subgraph STEP7["7️⃣ EXIT EXECUTION"]
+            EX1{"Exit Triggered?"}
+            EX2["Determine exit type:<br/>SL / TARGET / PARTIAL / TIME"]
+            EX3["Execute sell order"]
+            EX4["Calculate P&L"]
+            EX5["Update MongoDB"]
+            EX6["Send Telegram alert"]
+            EX7["Update strategy P&L"]
+            
+            EX1 -->|Yes| EX2 --> EX3 --> EX4 --> EX5 --> EX6 --> EX7
+        end
+
+        subgraph STEP8["8️⃣ END OF DAY (3:35 PM)"]
+            EOD1["Generate daily summary"]
+            EOD2["Calculate stats:<br/>Trades, Wins, Losses, P&L"]
+            EOD3["Save to daily_summary"]
+            EOD4["Send Telegram summary"]
+            EOD5["Update equity curve"]
+            
+            EOD1 --> EOD2 --> EOD3 --> EOD4 --> EOD5
+        end
+
+        STEP1 --> STEP2 --> STEP3 --> STEP4 --> STEP5 --> STEP6 --> STEP7 --> STEP8
+    end
+
+    classDef step1 fill:#3b82f6,stroke:#60a5fa,color:#fff
+    classDef step2 fill:#8b5cf6,stroke:#a78bfa,color:#fff
+    classDef step3 fill:#10b981,stroke:#34d399,color:#fff
+    classDef step4 fill:#f59e0b,stroke:#fbbf24,color:#000
+    classDef step5 fill:#ec4899,stroke:#f472b6,color:#fff
+    classDef step6 fill:#06b6d4,stroke:#22d3ee,color:#fff
+    classDef step7 fill:#ef4444,stroke:#f87171,color:#fff
+    classDef step8 fill:#84cc16,stroke:#a3e635,color:#000
+```

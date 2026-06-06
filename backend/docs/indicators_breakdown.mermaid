@@ -1,0 +1,146 @@
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+
+flowchart TB
+    subgraph DECISION["🧠 DECISION ENGINE - 67 INDICATORS"]
+        
+        subgraph MOMENTUM["📊 MOMENTUM INDICATORS (25%)"]
+            direction LR
+            M1["RSI (14)"]
+            M2["MACD"]
+            M3["Stochastic K/D"]
+            M4["Williams %R"]
+            M5["CCI"]
+            M6["ROC"]
+            M7["Ultimate Oscillator"]
+            M8["ADX"]
+            M9["Plus DI"]
+            M10["Minus DI"]
+            M11["Momentum"]
+            M12["OBV"]
+            M13["AD Line"]
+            M14["MFI"]
+            M15["Force Index"]
+        end
+        
+        subgraph VOLATILITY["📈 VOLATILITY INDICATORS (15%)"]
+            direction LR
+            V1["ATR"]
+            V2["Bollinger Bands"]
+            V3["Bollinger Width"]
+            V4["Keltner Channel"]
+            V5["Donchian Channel"]
+            V6["Standard Deviation"]
+            V7["Historical Volatility"]
+            V8["India VIX"]
+            V9["Squeeze Indicator"]
+        end
+        
+        subgraph TREND["📉 TREND INDICATORS (25%)"]
+            direction LR
+            T1["EMA 9"]
+            T2["EMA 21"]
+            T3["EMA 50"]
+            T4["EMA 200"]
+            T5["SMA 20"]
+            T6["SMA 50"]
+            T7["VWAP"]
+            T8["Ichimoku Cloud"]
+            T9["Tenkan Sen"]
+            T10["Kijun Sen"]
+            T11["Parabolic SAR"]
+            T12["Supertrend"]
+        end
+        
+        subgraph SR["🎯 SUPPORT/RESISTANCE (15%)"]
+            direction LR
+            S1["Pivot Point"]
+            S2["R1, R2, R3"]
+            S3["S1, S2, S3"]
+            S4["Fibonacci 38.2%"]
+            S5["Fibonacci 50%"]
+            S6["Fibonacci 61.8%"]
+            S7["Previous High"]
+            S8["Previous Low"]
+            S9["VWAP Bands"]
+        end
+        
+        subgraph PATTERNS["🔮 PATTERN RECOGNITION (30%)"]
+            direction TB
+            
+            subgraph CANDLE["Candlestick Patterns"]
+                C1["Doji"]
+                C2["Hammer"]
+                C3["Shooting Star"]
+                C4["Engulfing"]
+                C5["Morning Star"]
+                C6["Evening Star"]
+                C7["Harami"]
+                C8["Piercing Line"]
+                C9["Dark Cloud"]
+                C10["Three White Soldiers"]
+                C11["Three Black Crows"]
+            end
+            
+            subgraph HARMONIC["Harmonic Patterns"]
+                H1["Gartley"]
+                H2["Butterfly"]
+                H3["Bat"]
+                H4["Crab"]
+                H5["Shark"]
+                H6["Cypher"]
+                H7["ABCD"]
+            end
+            
+            subgraph PRIMARY["Primary Patterns"]
+                PR1["Head & Shoulders"]
+                PR2["Inverse H&S"]
+                PR3["Double Top"]
+                PR4["Double Bottom"]
+                PR5["Triple Top"]
+                PR6["Triple Bottom"]
+                PR7["Ascending Triangle"]
+                PR8["Descending Triangle"]
+                PR9["Symmetrical Triangle"]
+                PR10["Rising Wedge"]
+                PR11["Falling Wedge"]
+                PR12["Cup & Handle"]
+            end
+        end
+        
+        subgraph SCORING["📝 SCORING SYSTEM"]
+            SC1["Each indicator gives<br/>BULLISH / BEARISH / NEUTRAL"]
+            SC2["Weighted by category"]
+            SC3["Final Score = Σ(weight × score)"]
+            SC4{"Confidence >= 70%?"}
+            SC5["Generate BULLISH Signal"]
+            SC6["Generate BEARISH Signal"]
+            SC7["No Signal"]
+            
+            SC1 --> SC2 --> SC3 --> SC4
+            SC4 -->|"Bullish > Bearish"| SC5
+            SC4 -->|"Bearish > Bullish"| SC6
+            SC4 -->|"< 70%"| SC7
+        end
+    end
+
+    MOMENTUM --> SCORING
+    VOLATILITY --> SCORING
+    TREND --> SCORING
+    SR --> SCORING
+    PATTERNS --> SCORING
+
+    classDef momentum fill:#3b82f6,stroke:#60a5fa,color:#fff
+    classDef volatility fill:#f59e0b,stroke:#fbbf24,color:#000
+    classDef trend fill:#10b981,stroke:#34d399,color:#fff
+    classDef sr fill:#8b5cf6,stroke:#a78bfa,color:#fff
+    classDef patterns fill:#ec4899,stroke:#f472b6,color:#fff
+    classDef scoring fill:#06b6d4,stroke:#22d3ee,color:#fff
+
+    class M1,M2,M3,M4,M5,M6,M7,M8,M9,M10,M11,M12,M13,M14,M15 momentum
+    class V1,V2,V3,V4,V5,V6,V7,V8,V9 volatility
+    class T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12 trend
+    class S1,S2,S3,S4,S5,S6,S7,S8,S9 sr
+    class C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,H1,H2,H3,H4,H5,H6,H7,PR1,PR2,PR3,PR4,PR5,PR6,PR7,PR8,PR9,PR10,PR11,PR12 patterns
+    class SC1,SC2,SC3,SC4,SC5,SC6,SC7 scoring
+```

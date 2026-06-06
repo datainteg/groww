@@ -1,0 +1,147 @@
+```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#3b82f6', 'primaryTextColor': '#fff', 'primaryBorderColor': '#60a5fa', 'lineColor': '#60a5fa', 'secondaryColor': '#1e293b', 'tertiaryColor': '#0f172a'}}}%%
+
+flowchart TB
+    subgraph USER["👤 USER INTERFACE"]
+        LOGIN[/"🔐 Login Page<br/>Email + Password<br/>Groww API Key + Secret"/]
+        DASH["📊 Dashboard"]
+        STRAT["📈 Strategy Page"]
+        TRADES["📋 Trades Page"]
+        SETTINGS["⚙️ Settings"]
+        PROFILE["👤 Profile"]
+    end
+
+    subgraph AUTH_FLOW["🔑 AUTHENTICATION FLOW"]
+        direction TB
+        A1["User enters credentials"]
+        A2["Generate SHA256 Checksum<br/>checksum = SHA256(secret + timestamp)"]
+        A3["Call Groww Token API<br/>POST /v1/token/api/access"]
+        A4["Receive Access Token<br/>(expires 6 AM IST)"]
+        A5["Encrypt & Store in MongoDB"]
+        A6["Generate JWT for Session"]
+        A1 --> A2 --> A3 --> A4 --> A5 --> A6
+    end
+
+    subgraph BACKEND["⚙️ FLASK BACKEND"]
+        direction TB
+        
+        subgraph ROUTES["📡 API ROUTES"]
+            R1["auth_routes.py"]
+            R2["market_routes.py"]
+            R3["strategy_routes.py"]
+            R4["trade_routes.py"]
+            R5["settings_routes.py"]
+            R6["instruments_routes.py"]
+        end
+
+        subgraph SERVICES["🔧 SERVICES"]
+            S1["groww_client.py<br/>Full Groww API"]
+            S2["paper_broker.py<br/>Simulation"]
+            S3["trading_engine.py<br/>Execution"]
+            S4["instrument_sync.py<br/>Daily CSV Sync"]
+            S5["telegram_alert.py<br/>Notifications"]
+            S6["scheduler.py<br/>Background Jobs"]
+        end
+
+        subgraph ANALYSIS["🧠 67 INDICATOR ANALYSIS"]
+            AN1["decision_engine.py"]
+            AN2["momentum/indicators.py<br/>RSI, MACD, Stochastic, ADX..."]
+            AN3["volatility/indicators.py<br/>ATR, Bollinger, VIX..."]
+            AN4["support_resistance/indicators.py<br/>Pivot, Fibonacci, VWAP..."]
+            AN5["patterns/<br/>Candlestick, Harmonic, Primary"]
+        end
+
+        subgraph UTILS["🛠️ UTILITIES"]
+            U1["encryption.py<br/>AES-256"]
+            U2["checksum.py<br/>SHA256"]
+            U3["time_utils.py<br/>IST, Market Hours"]
+            U4["risk_manager.py<br/>SL/Target/Trailing"]
+        end
+    end
+
+    subgraph DB["💾 DATABASE"]
+        MONGO["MongoDB<br/>Users, Strategies, Trades<br/>Instruments, Settings, Journal"]
+        REDIS["Redis<br/>Cache LTP, Quotes<br/>Sessions"]
+    end
+
+    subgraph GROWW["🌐 GROWW API"]
+        G1["Token API<br/>/v1/token/api/access"]
+        G2["Live Data API<br/>/v1/live-data/ltp"]
+        G3["Order API<br/>/v1/order/create"]
+        G4["Option Chain API"]
+        G5["Instruments CSV<br/>Daily Download"]
+    end
+
+    subgraph TELEGRAM["📱 TELEGRAM"]
+        T1["Signal Alerts"]
+        T2["Entry/Exit Alerts"]
+        T3["Daily Summary 3:35 PM"]
+        T4["Kill Switch Alert"]
+    end
+
+    %% User Flow
+    LOGIN --> AUTH_FLOW
+    AUTH_FLOW --> DASH
+    DASH --> STRAT
+    DASH --> TRADES
+    DASH --> SETTINGS
+    DASH --> PROFILE
+
+    %% Backend Connections
+    LOGIN --> R1
+    DASH --> R2
+    STRAT --> R3
+    TRADES --> R4
+    SETTINGS --> R5
+    STRAT --> R6
+
+    %% Service Connections
+    R1 --> S1
+    R2 --> S1
+    R3 --> S3
+    R4 --> S2
+    R6 --> S4
+
+    %% Analysis
+    S3 --> AN1
+    AN1 --> AN2
+    AN1 --> AN3
+    AN1 --> AN4
+    AN1 --> AN5
+
+    %% Database
+    ROUTES --> MONGO
+    SERVICES --> MONGO
+    S1 --> REDIS
+    
+    %% Groww API
+    S1 --> G1
+    S1 --> G2
+    S1 --> G3
+    S1 --> G4
+    S4 --> G5
+
+    %% Telegram
+    S5 --> TELEGRAM
+    S3 --> S5
+
+    %% Utils
+    R1 --> U1
+    R1 --> U2
+    S3 --> U3
+    S3 --> U4
+
+    classDef userClass fill:#3b82f6,stroke:#60a5fa,color:#fff
+    classDef authClass fill:#8b5cf6,stroke:#a78bfa,color:#fff
+    classDef backendClass fill:#10b981,stroke:#34d399,color:#fff
+    classDef dbClass fill:#f59e0b,stroke:#fbbf24,color:#000
+    classDef growwClass fill:#ec4899,stroke:#f472b6,color:#fff
+    classDef telegramClass fill:#06b6d4,stroke:#22d3ee,color:#fff
+
+    class LOGIN,DASH,STRAT,TRADES,SETTINGS,PROFILE userClass
+    class A1,A2,A3,A4,A5,A6 authClass
+    class R1,R2,R3,R4,R5,R6,S1,S2,S3,S4,S5,S6,AN1,AN2,AN3,AN4,AN5,U1,U2,U3,U4 backendClass
+    class MONGO,REDIS dbClass
+    class G1,G2,G3,G4,G5 growwClass
+    class T1,T2,T3,T4 telegramClass
+```

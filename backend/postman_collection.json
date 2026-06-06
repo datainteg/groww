@@ -1,0 +1,772 @@
+{
+  "info": {
+    "name": "AI Trading System API - Complete",
+    "description": "Complete API collection for AI Trading System with Groww integration.\n\n**Setup Instructions:**\n1. Import this collection into Postman\n2. Set the `base_url` variable to your server URL (default: http://localhost:5000/api)\n3. First call Register or Login to get an access_token\n4. The access_token will be automatically saved to the collection variable\n\n**Authentication:**\nAll endpoints except /health and /auth/register and /auth/login require a Bearer token in the Authorization header.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "base_url", "value": "http://localhost:5000/api", "type": "string"},
+    {"key": "access_token", "value": "", "type": "string"},
+    {"key": "strategy_id", "value": "", "type": "string"},
+    {"key": "trade_id", "value": "", "type": "string"},
+    {"key": "order_id", "value": "", "type": "string"}
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "System health check - No authentication required",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response has status', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('healthy');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health",
+            "description": "Check if the API server is running. No authentication required."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints for user registration, login, and profile management",
+      "item": [
+        {
+          "name": "Register User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response has access_token', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.access_token).to.be.a('string');",
+                  "    pm.collectionVariables.set('access_token', jsonData.access_token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/register",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"groww_api_key\": \"\",\n  \"groww_api_secret\": \"\"\n}"
+            },
+            "description": "Register a new user. Groww API credentials are optional - you can add them later."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response has access_token', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.access_token).to.be.a('string');",
+                  "    pm.collectionVariables.set('access_token', jsonData.access_token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/login",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "description": "Login with email and password. Returns JWT access token."
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/auth/me",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get current logged-in user information."
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/auth/profile",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get detailed user profile including masked API key."
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/auth/profile",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newemail@example.com\"\n}"
+            },
+            "description": "Update user profile. Can update email or password."
+          }
+        },
+        {
+          "name": "Update Groww Credentials",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/update-groww-credentials",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groww_api_key\": \"your_groww_api_key\",\n  \"groww_api_secret\": \"your_groww_api_secret\"\n}"
+            },
+            "description": "Update Groww API credentials for live trading."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/refresh-token",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Refresh JWT token to extend session."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/logout",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Logout user and invalidate session."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Market",
+      "description": "Market data endpoints - indices, quotes, instruments, and option chains",
+      "item": [
+        {
+          "name": "Get Market Status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/market/status",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get current market status (OPEN/CLOSED), trading hours, and time to next open/close."
+          }
+        },
+        {
+          "name": "Get Indices",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/market/indices",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get major indices (NIFTY, BANKNIFTY, SENSEX, FINNIFTY) with current price, change, and change %."
+          }
+        },
+        {
+          "name": "Get LTP - NIFTY",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/market/ltp/NIFTY",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get Last Traded Price for NIFTY index."
+          }
+        },
+        {
+          "name": "Get Quote",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/market/quote/NIFTY",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get full quote including OHLC, volume for a symbol."
+          }
+        },
+        {
+          "name": "Sync Instruments",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/market/instruments/sync",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Download and sync instruments from Groww CSV. Run this daily to get latest instruments."
+          }
+        },
+        {
+          "name": "Get Expiries",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/market/expiries/NIFTY",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get available expiry dates for an underlying."
+          }
+        },
+        {
+          "name": "Search Instruments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/market/search?q=NIFTY&limit=20",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Search instruments by trading symbol."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Instruments",
+      "description": "Instrument data endpoints for strategy creation",
+      "item": [
+        {
+          "name": "Sync Instruments",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/instruments/sync",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Download and sync F&O instruments from Groww."
+          }
+        },
+        {
+          "name": "Get CE Symbols",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/instruments/symbols/NIFTY/CE",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get all CE option symbols for NIFTY (for dropdown)."
+          }
+        },
+        {
+          "name": "Get PE Symbols",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/instruments/symbols/NIFTY/PE",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get all PE option symbols for NIFTY (for dropdown)."
+          }
+        },
+        {
+          "name": "Get Underlying Info",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/instruments/info/NIFTY",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get expiry and lot size info for an underlying."
+          }
+        },
+        {
+          "name": "Get Expiries",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/instruments/expiries/NIFTY",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get available expiries for an underlying."
+          }
+        },
+        {
+          "name": "Get Instruments Count",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/instruments/count",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get count of instruments grouped by underlying."
+          }
+        },
+        {
+          "name": "Get Last Sync Info",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/instruments/last-sync",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get last instrument sync timestamp and total count."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Strategy",
+      "description": "Strategy management and AI-powered decision engine",
+      "item": [
+        {
+          "name": "Create Strategy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.strategy_id) {",
+                  "    pm.collectionVariables.set('strategy_id', jsonData.strategy_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/strategy/create",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NIFTY Scalper\",\n  \"index\": \"NIFTY\",\n  \"ce_symbol\": \"NIFTY25JAN23000CE\",\n  \"pe_symbol\": \"NIFTY25JAN23000PE\",\n  \"quantity\": 50,\n  \"stop_loss\": 50,\n  \"target\": 100,\n  \"trailing_sl_enabled\": true,\n  \"trailing_sl_value\": 20,\n  \"break_even_enabled\": true,\n  \"break_even_trigger\": 50,\n  \"partial_exit_enabled\": false,\n  \"partial_exit_percent\": 50,\n  \"time_exit_enabled\": true,\n  \"max_orders_per_day\": 2,\n  \"max_profit_limit\": 5000,\n  \"max_loss_limit\": 2000\n}"
+            },
+            "description": "Create a new trading strategy with risk management settings."
+          }
+        },
+        {
+          "name": "List Strategies",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/list",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "List all strategies for the current user."
+          }
+        },
+        {
+          "name": "Get Strategy",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/{{strategy_id}}",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get details of a specific strategy."
+          }
+        },
+        {
+          "name": "Update Strategy",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/strategy/{{strategy_id}}",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stop_loss\": 60,\n  \"target\": 120,\n  \"trailing_sl_enabled\": true\n}"
+            },
+            "description": "Update strategy settings. Cannot update active strategies."
+          }
+        },
+        {
+          "name": "Delete Strategy",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/strategy/{{strategy_id}}",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Delete a strategy. Cannot delete active strategies."
+          }
+        },
+        {
+          "name": "Start Strategy",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/strategy/{{strategy_id}}/start",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Start/activate a strategy for trading."
+          }
+        },
+        {
+          "name": "Stop Strategy",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/strategy/{{strategy_id}}/stop",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Manual stop\"\n}"
+            },
+            "description": "Stop a running strategy."
+          }
+        },
+        {
+          "name": "Stop All Strategies",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/strategy/stop-all",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Stop all active strategies at once."
+          }
+        },
+        {
+          "name": "Get Engine Status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/status",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get trading engine status including active strategies and market status."
+          }
+        },
+        {
+          "name": "Get Decision (67 Indicators)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/decision?symbol=NIFTY&interval=5",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get AI-powered trading decision using 67 technical indicators. Returns BULLISH/BEARISH signal with confidence score."
+          }
+        },
+        {
+          "name": "Get All Indicators",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/indicators/NIFTY?interval=5",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get all 67 indicator values for a symbol - momentum, volatility, patterns, support/resistance."
+          }
+        },
+        {
+          "name": "Get Candles",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/candles/NIFTY?interval=5&limit=100",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get candlestick data for charting. Returns OHLCV data."
+          }
+        },
+        {
+          "name": "Sync Candles",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/strategy/candles/NIFTY/sync?interval=5",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Fetch and sync candle data from Groww API (or generate mock data if not connected)."
+          }
+        },
+        {
+          "name": "Analyze Strategy",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/strategy/{{strategy_id}}/analyze",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Run AI analysis on a specific strategy's underlying."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trade",
+      "description": "Order execution, positions, and trade management",
+      "item": [
+        {
+          "name": "Place Order - BUY",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.order_id) {",
+                  "    pm.collectionVariables.set('order_id', jsonData.order_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/trade/place-order",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trading_symbol\": \"NIFTY25JAN23000CE\",\n  \"quantity\": 50,\n  \"transaction_type\": \"BUY\",\n  \"order_type\": \"MARKET\",\n  \"segment\": \"FNO\"\n}"
+            },
+            "description": "Place a BUY order. In PAPER mode, simulates execution using live prices."
+          }
+        },
+        {
+          "name": "Place Order - SELL",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/trade/place-order",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trading_symbol\": \"NIFTY25JAN23000CE\",\n  \"quantity\": 50,\n  \"transaction_type\": \"SELL\",\n  \"order_type\": \"MARKET\",\n  \"segment\": \"FNO\"\n}"
+            },
+            "description": "Place a SELL order to close position."
+          }
+        },
+        {
+          "name": "Get Orders",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/orders?segment=FNO",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get list of all orders for the day."
+          }
+        },
+        {
+          "name": "Get Order Status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/order/{{order_id}}?segment=FNO",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get status of a specific order."
+          }
+        },
+        {
+          "name": "Get Positions",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/positions",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get current open positions with unrealized P&L."
+          }
+        },
+        {
+          "name": "Get Trades",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/trades?limit=50",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get trade history."
+          }
+        },
+        {
+          "name": "Get Active Trades",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/active-trades",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get all open/active trades."
+          }
+        },
+        {
+          "name": "Exit Trade",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/trade/{{trade_id}}/exit",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Manually exit/close a trade."
+          }
+        },
+        {
+          "name": "Get Daily P&L",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/daily-pnl",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get today's P&L summary with win rate."
+          }
+        },
+        {
+          "name": "Get Limits",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/limits",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get margin/capital limits and available balance."
+          }
+        },
+        {
+          "name": "Get Statistics",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/statistics?days=30",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get trading statistics including total P&L, win rate, best/worst trade, and equity curve."
+          }
+        },
+        {
+          "name": "Reset Paper Account",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/trade/paper/reset",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Reset paper trading account to initial capital."
+          }
+        },
+        {
+          "name": "Get Journal",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/trade/journal?limit=50",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get trade journal entries."
+          }
+        },
+        {
+          "name": "Add Journal Entry",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/trade/journal/{{trade_id}}",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Good setup with momentum confirmation\",\n  \"tags\": [\"scalp\", \"momentum\", \"nifty\"],\n  \"rating\": 4,\n  \"lessons\": \"Wait for RSI confirmation before entry\"\n}"
+            },
+            "description": "Add journal entry for a trade with notes, tags, rating, and lessons."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "description": "User settings, risk management, and notifications",
+      "item": [
+        {
+          "name": "Get Settings",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/settings/",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Get all user settings including execution mode, limits, and notifications."
+          }
+        },
+        {
+          "name": "Update Settings",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/settings/",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alerts_enabled\": true,\n  \"overall_max_profit\": 10000,\n  \"overall_max_loss\": 5000,\n  \"max_concurrent_trades\": 3\n}"
+            },
+            "description": "Update user settings."
+          }
+        },
+        {
+          "name": "Update Execution Mode",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/settings/mode",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"PAPER\"\n}"
+            },
+            "description": "Update execution mode (PAPER or LIVE)."
+          }
+        },
+        {
+          "name": "Update Theme",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/settings/theme",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"theme\": \"dark\"\n}"
+            },
+            "description": "Update UI theme (dark or light)."
+          }
+        },
+        {
+          "name": "Toggle Kill Switch",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/settings/kill-switch",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true\n}"
+            },
+            "description": "Enable/disable kill switch. When enabled, stops all strategies immediately."
+          }
+        },
+        {
+          "name": "Configure Telegram",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/settings/telegram",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bot_token\": \"your_telegram_bot_token\",\n  \"chat_id\": \"your_chat_id\"\n}"
+            },
+            "description": "Configure Telegram notifications. Get bot_token from @BotFather and chat_id from @userinfobot."
+          }
+        },
+        {
+          "name": "Test Telegram",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/settings/telegram/test",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Send a test message to verify Telegram configuration."
+          }
+        },
+        {
+          "name": "Disconnect Telegram",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/settings/telegram",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Disconnect Telegram notifications."
+          }
+        },
+        {
+          "name": "Reset Daily Counters",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/settings/reset-daily",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Reset daily P&L and order counters for all strategies. Usually done at start of trading day."
+          }
+        }
+      ]
+    }
+  ]
+}

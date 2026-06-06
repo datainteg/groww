@@ -1,0 +1,176 @@
+"""
+AI Trading System - Main Application
+Flask backend with Groww API integration
+"""
+import json
+import os
+import time
+import numpy as np
+from datetime import datetime, date
+from flask import Flask, jsonify, request
+from flask.json.provider import JSONProvider
+from flask_cors import CORS
+from flask_jwt_extended import JWTManager
+from config import config
+
+
+class CustomJSONProvider(JSONProvider):
+    """Custom JSON Provider to handle numpy types"""
+    
+    def default(self, obj):
+        if isinstance(obj, (np.bool_, bool)):
+            return bool(obj)
+        if isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            return int(obj)
+        if isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+            if np.isnan(obj) or np.isinf(obj):
+                return None
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+    
+    def dumps(self, obj, **kwargs):
+        return json.dumps(obj, default=self.default, **kwargs)
+    
+    def loads(self, s, **kwargs):
+        return json.loads(s, **kwargs)
+
+
+def create_app():
+    """Create Flask application"""
+    app = Flask(__name__)
+
+    # Fail fast on unsafe configuration (insecure secrets, DEBUG+LIVE, ...)
+    warnings = config.validate()
+    for w in warnings:
+        app.logger.warning("CONFIG WARNING: %s (insecure — fix before production)", w)
+
+    # Use custom JSON provider for numpy types
+    app.json = CustomJSONProvider(app)
+    
+    # Configuration
+    app.config['SECRET_KEY'] = config.SECRET_KEY
+    app.config['JWT_SECRET_KEY'] = config.JWT_SECRET_KEY
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = config.JWT_ACCESS_TOKEN_EXPIRES
+    
+    # CORS Configuration - Handle preflight requests
+    CORS(app, 
+         resources={r"/api/*": {"origins": "*"}},
+         supports_credentials=True,
+         allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+    
+    # Handle preflight requests explicitly
+    @app.before_request
+    def handle_preflight():
+        if request.method == "OPTIONS":
+            response = app.make_default_options_response()
+            headers = response.headers
+            headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+            headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            headers['Access-Control-Allow-Credentials'] = 'true'
+            headers['Access-Control-Max-Age'] = '3600'
+            return response
+    
+    @app.after_request
+    def after_request(response):
+        origin = request.headers.get('Origin', '*')
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    jwt = JWTManager(app)
+    
+    # JWT Error Handlers
+    @jwt.unauthorized_loader
+    def unauthorized_callback(callback):
+        return jsonify({'error': 'Missing Authorization Header'}), 401
+    
+    @jwt.invalid_token_loader
+    def invalid_token_callback(callback):
+        return jsonify({'error': 'Invalid token'}), 401
+    
+    @jwt.expired_token_loader
+    def expired_token_callback(jwt_header, jwt_payload):
+        return jsonify({'error': 'Token expired'}), 401
+    
+    @jwt.revoked_token_loader
+    def revoked_token_callback(jwt_header, jwt_payload):
+        return jsonify({'error': 'Token revoked'}), 401
+    
+    # Import and register blueprints
+    from routes import auth_bp, market_bp, strategy_bp, trade_bp, settings_bp, instruments_bp
+    
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(market_bp)
+    app.register_blueprint(strategy_bp)
+    app.register_blueprint(trade_bp)
+    app.register_blueprint(settings_bp)
+    app.register_blueprint(instruments_bp)
+    
+    # Optionally start the background scheduler inside the web process.
+    # Recommended production topology is a DEDICATED process (see run_scheduler.py),
+    # so this is opt-in via START_SCHEDULER_IN_APP=true. The Redis leader-lock
+    # inside the scheduler prevents multi-worker double-start regardless.
+    if os.getenv('START_SCHEDULER_IN_APP', 'false').lower() == 'true':
+        # Avoid double start under the Werkzeug auto-reloader in dev.
+        if not config.DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+            from services import scheduler_service, start_direction_scheduler
+            scheduler_service.start()
+            start_direction_scheduler()
+
+    # Health check (also reports background-scheduler liveness)
+    @app.route('/api/health', methods=['GET'])
+    def health():
+        from database.redis_client import redis_client
+        hb, stale = None, None
+        client = getattr(redis_client, 'client', None)
+        if client:
+            try:
+                raw = client.get('scheduler:last_heartbeat')
+                if raw:
+                    hb = int(raw)
+                    stale = (int(time.time()) - hb) > 30
+            except Exception:
+                pass
+        return jsonify({
+            'status': 'healthy',
+            'execution_mode': config.EXECUTION_MODE,
+            'version': '4.0.0',
+            'scheduler_last_heartbeat': hb,
+            'scheduler_stale': stale
+        })
+    
+    # Error handlers
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({'error': 'Endpoint not found'}), 404
+    
+    @app.errorhandler(500)
+    def server_error(e):
+        return jsonify({'error': 'Internal server error'}), 500
+    
+    return app
+
+
+app = create_app()
+
+if __name__ == '__main__':
+    print(f"Starting AI Trading System v4.0.0 in {config.EXECUTION_MODE} mode")
+
+    # Dev single-process: start background workers here (idempotent + leader-locked).
+    # Guard against the Werkzeug auto-reloader forking a second process and
+    # double-starting the schedulers (only the reloaded child sets WERKZEUG_RUN_MAIN).
+    # For production use gunicorn for the API + a dedicated `python run_scheduler.py`.
+    if not config.DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        from services import scheduler_service, start_direction_scheduler
+        scheduler_service.start()
+        start_direction_scheduler()
+
+    app.run(host='0.0.0.0', port=5000, debug=config.DEBUG)
