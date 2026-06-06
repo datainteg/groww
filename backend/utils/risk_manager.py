@@ -64,8 +64,22 @@ class RiskManager:
         max_concurrent = settings.get('max_concurrent_trades', config.DEFAULT_MAX_CONCURRENT_TRADES)
         if active_trades >= max_concurrent:
             return False, f"Max concurrent trades reached ({active_trades}/{max_concurrent})"
-        
+
         return True, "OK"
+
+    @staticmethod
+    def normalize_min_confidence(value, default: float = 0.6) -> float:
+        """Strategies may store min_confidence as a percent (e.g. 70) or as a
+        0-1 fraction. The engine's confidence is a 0-1 fraction, so normalize:
+        None/invalid -> default; >1 -> /100; otherwise unchanged (0 disables the
+        per-strategy gate and defers to the engine threshold)."""
+        if value is None:
+            return default
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return default
+        return v / 100.0 if v > 1 else v
     
     @staticmethod
     def calculate_sl_target(
