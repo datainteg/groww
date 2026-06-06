@@ -89,6 +89,11 @@ class Config:
         if is_live and self.DEBUG:
             problems.append('DEBUG must be False when EXECUTION_MODE=LIVE')
 
+        # In LIVE, CORS must be locked to real origins (never localhost/unset).
+        cors = os.getenv('CORS_ORIGINS', '')
+        if is_live and (not cors.strip() or 'localhost' in cors):
+            problems.append('CORS_ORIGINS must be set to non-localhost origins in LIVE mode')
+
         # Refuse to start when secrets are weak in any non-DEBUG run, and always in LIVE.
         if problems and (is_live or not self.DEBUG):
             raise RuntimeError(

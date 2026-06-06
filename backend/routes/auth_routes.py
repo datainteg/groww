@@ -2,20 +2,40 @@
 Authentication Routes
 Handles user registration, login, and profile management
 """
+import re
+import time
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
-    create_access_token, jwt_required, get_jwt_identity
+    create_access_token, jwt_required, get_jwt_identity, get_jwt
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
-from database import db
+from database import db, redis_client
 from config import config
 from utils import encryption
 # Import GrowwClient to verify credentials immediately
 from services.groww_client import GrowwClient
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+_MIN_PASSWORD_LEN = 8
+
+
+def _rate_limited(key, max_attempts, window_seconds):
+    """Redis fixed-window rate limit. Returns True if the caller is over the
+    limit. Fail-open if Redis is unavailable (don't lock users out on outage)."""
+    client = getattr(redis_client, 'client', None)
+    if not client:
+        return False
+    try:
+        n = client.incr(key)
+        if n == 1:
+            client.expire(key, window_seconds)
+        return n > max_attempts
+    except Exception:
+        return False
 
 
 def get_token_expiry_time():
@@ -47,9 +67,13 @@ def register():
     
     if not email:
         return jsonify({'error': 'Email is required'}), 400
+    if not _EMAIL_RE.match(email):
+        return jsonify({'error': 'Invalid email format'}), 400
     if not password:
         return jsonify({'error': 'Password is required'}), 400
-    
+    if len(password) < _MIN_PASSWORD_LEN:
+        return jsonify({'error': f'Password must be at least {_MIN_PASSWORD_LEN} characters'}), 400
+
     # Check if user exists
     if db.get_user_by_email(email):
         return jsonify({'error': 'Email already registered'}), 400
@@ -115,30 +139,28 @@ def login():
     
     if not email or not password:
         return jsonify({'error': 'Email and password required'}), 400
-    
+
+    # Brute-force protection: 5 attempts / 5 min per IP+email.
+    ip = request.remote_addr or 'unknown'
+    if _rate_limited(f'login_attempts:{ip}:{email}', 5, 300):
+        return jsonify({'error': 'Too many login attempts. Try again in a few minutes.'}), 429
+
     # Get user
     user = db.get_user_by_email(email)
     if not user:
         return jsonify({'error': 'Invalid credentials'}), 401
-    
+
     # Verify password
     if not check_password_hash(user['password'], password):
         return jsonify({'error': 'Invalid credentials'}), 401
-    
+
     user_id = str(user['_id'])
-    
-    # Optionally update Groww credentials if provided
-    groww_api_key = data.get('groww_api_key', '').strip()
-    groww_api_secret = data.get('groww_api_secret', '').strip()
-    
-    if groww_api_key and groww_api_secret:
-        # Store encrypted credentials (actual token generation would happen with Groww)
-        db.update_user(user_id, {
-            'groww_api_key': encryption.encrypt(groww_api_key),
-            'groww_api_secret': encryption.encrypt(groww_api_secret),
-            'broker_connected': True
-        })
-    
+
+    # NOTE: Groww credentials are intentionally NOT updated here. They must go
+    # through /update-groww-credentials which VALIDATES against the Groww API
+    # before setting broker_connected. (The old login path set broker_connected
+    # =True without any verification.)
+
     # Generate JWT
     access_token = create_access_token(identity=user_id)
     
@@ -316,5 +338,22 @@ def refresh_groww_token():
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required(optional=True)
 def logout():
-    """Logout user - accepts both authenticated and unauthenticated requests"""
+    """Logout user - revokes the presented JWT via a Redis JTI blocklist."""
+    jwt_data = get_jwt() or {}
+    jti = jwt_data.get('jti')
+    if jti:
+        client = getattr(redis_client, 'client', None)
+        if client:
+            exp = jwt_data.get('exp')
+            # Keep the blocklist entry only until the token would expire anyway;
+            # fall back to the configured access-token lifetime, not a literal.
+            try:
+                default_ttl = int(config.JWT_ACCESS_TOKEN_EXPIRES.total_seconds())
+            except Exception:
+                default_ttl = 86400
+            ttl = max(int(exp - time.time()), 1) if exp else default_ttl
+            try:
+                client.set(f'jwt_blocklist:{jti}', '1', ex=ttl)
+            except Exception:
+                pass
     return jsonify({'message': 'Logged out successfully'})

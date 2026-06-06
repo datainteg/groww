@@ -20,6 +20,17 @@ def update_user_field(user_id, field, value):
         print(f"Error updating user field: {e}")
         return False
 
+
+def _live_precondition_error(user_id):
+    """Return an error response if the user may NOT enable LIVE mode yet
+    (no verified broker connection / access token), else None."""
+    user = db.get_user_by_id(user_id)
+    if not user or not user.get('broker_connected') or not user.get('groww_access_token'):
+        return jsonify({
+            'error': 'Connect and verify a Groww account (valid access token) before enabling LIVE mode'
+        }), 400
+    return None
+
 @settings_bp.route('/', methods=['GET'])
 @jwt_required()
 def get_settings():
@@ -73,8 +84,12 @@ def update_settings():
     if 'execution_mode' in data:
         mode = data['execution_mode'].upper()
         if mode in ['PAPER', 'LIVE']:
+            if mode == 'LIVE':
+                err = _live_precondition_error(user_id)
+                if err:
+                    return err
             update_user_field(user_id, 'execution_mode', mode)
-    
+
     return jsonify({'message': 'Settings updated'})
 
 
@@ -88,7 +103,13 @@ def update_execution_mode():
     mode = data.get('mode', 'PAPER').upper()
     if mode not in ['PAPER', 'LIVE']:
         return jsonify({'error': 'Invalid mode. Must be PAPER or LIVE'}), 400
-    
+
+    # Step-up: refuse LIVE unless a verified Groww account + token exist.
+    if mode == 'LIVE':
+        err = _live_precondition_error(user_id)
+        if err:
+            return err
+
     # Single source of truth: execution_mode lives in the users collection only.
     success = update_user_field(user_id, 'execution_mode', mode)
 

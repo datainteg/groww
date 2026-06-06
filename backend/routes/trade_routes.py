@@ -1,5 +1,6 @@
 """Trade Routes"""
 import time
+import uuid
 from contextlib import contextmanager
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -13,35 +14,62 @@ trade_bp = Blueprint('trade', __name__, url_prefix='/api/trade')
 # ==========================================
 # HELPER: Redis Distributed Lock
 # ==========================================
+# Atomic compare-and-delete: only release the lock if we still own it.
+_RELEASE_LUA = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] "
+    "then return redis.call('del', KEYS[1]) else return 0 end"
+)
+
+
 @contextmanager
-def acquire_trade_lock(user_id, timeout=5):
+def acquire_trade_lock(user_id, timeout=5, execution_mode=None):
     """
-    Prevents race conditions (e.g. double spending, duplicate orders).
-    Uses Redis SETNX to ensure only one trade operation runs at a time per user.
+    Prevents race conditions (e.g. duplicate real-money orders).
+    Uses Redis SETNX so only one trade operation runs at a time per user.
+
+    Fail policy when Redis is unavailable:
+      - LIVE  -> fail CLOSED (refuse), never risk an unguarded duplicate order.
+      - PAPER -> fail OPEN (proceed); paper trades carry no financial risk.
     """
+    if execution_mode is None:
+        execution_mode = get_user_execution_mode(user_id)
+
     client = redis_client.client
-    # If Redis is down, we allow the trade but log a warning (Fail-open)
     if not client:
-        print("Warning: Redis lock unavailable, proceeding without lock.")
+        if str(execution_mode).upper() == 'LIVE':
+            print("Redis lock unavailable in LIVE mode -> refusing trade (fail-closed).")
+            yield False
+            return
+        print("Warning: Redis lock unavailable (PAPER), proceeding without lock.")
         yield True
         return
 
     lock_key = f"trade_lock:{user_id}"
-    identifier = str(time.time())
-    
-    # Try to acquire lock
-    # nx=True -> Only set if not exists
-    # ex=timeout -> Auto-expire after 5s to prevent deadlocks
-    if client.set(lock_key, identifier, nx=True, ex=timeout):
+    identifier = uuid.uuid4().hex  # unique per holder (no time collisions)
+
+    try:
+        acquired = client.set(lock_key, identifier, nx=True, ex=timeout)
+    except Exception:
+        # Mid-session Redis outage: apply the SAME fail policy as init-time loss.
+        if str(execution_mode).upper() == 'LIVE':
+            print("Redis error acquiring lock in LIVE -> refusing trade (fail-closed).")
+            yield False
+        else:
+            print("Redis error acquiring lock (PAPER), proceeding without lock.")
+            yield True
+        return
+
+    if acquired:
         try:
             yield True
         finally:
-            # Release lock only if we own it
-            current_value = client.get(lock_key)
-            if current_value and current_value == identifier:
-                client.delete(lock_key)
+            # Atomic release (Lua) — avoids the GET-then-DEL race that could
+            # delete a different holder's lock after our TTL expired.
+            try:
+                client.eval(_RELEASE_LUA, 1, lock_key, identifier)
+            except Exception:
+                pass
     else:
-        # Lock acquisition failed
         yield False
 
 # ==========================================
@@ -83,6 +111,97 @@ def get_paper_broker(user_id):
 
 
 # ==========================================
+# HELPER: Strict order validation
+# ==========================================
+# Enums per Groww trade-api (https://groww.in/trade-api/docs): order_type SL_M
+# uses an underscore; product CNC (equity) / MIS / NRML.
+_ALLOWED_TXN = {'BUY', 'SELL'}
+_ALLOWED_ORDER_TYPE = {'MARKET', 'LIMIT', 'SL', 'SL_M'}
+# Per Groww docs, segment is the instrument class (exchange is separate).
+_ALLOWED_SEGMENT = {'CASH', 'FNO', 'COMMODITY'}
+_ALLOWED_PRODUCT = {'CNC', 'MIS', 'NRML'}
+_ALLOWED_EXCHANGE = {'NSE', 'BSE', 'MCX'}
+_MAX_QUANTITY = 100000  # hard upper bound on a single order
+
+
+def _derive_exchange(trading_symbol, segment):
+    """Pick the correct Groww exchange for a symbol. SENSEX/BANKEX are BSE,
+    commodities are MCX, everything else defaults to NSE."""
+    su = str(trading_symbol).upper()
+    if 'SENSEX' in su or 'BANKEX' in su:
+        return 'BSE'
+    if str(segment).upper() == 'COMMODITY':
+        return 'MCX'
+    return 'NSE'
+
+
+def _validate_order(data):
+    """Strict server-side validation for an order payload.
+    Returns (clean_dict, None) on success or (None, error_message)."""
+    if not isinstance(data, dict):
+        return None, 'invalid JSON body'
+
+    symbol = str(data.get('trading_symbol', '')).strip()
+    if not symbol:
+        return None, 'trading_symbol is required'
+
+    txn = str(data.get('transaction_type', '')).upper()
+    if txn not in _ALLOWED_TXN:
+        return None, 'transaction_type must be BUY or SELL'
+
+    order_type = str(data.get('order_type', 'MARKET')).upper()
+    if order_type not in _ALLOWED_ORDER_TYPE:
+        return None, f'order_type must be one of {sorted(_ALLOWED_ORDER_TYPE)}'
+
+    segment = str(data.get('segment', 'FNO')).upper()
+    if segment not in _ALLOWED_SEGMENT:
+        return None, f'segment must be one of {sorted(_ALLOWED_SEGMENT)}'
+
+    product = str(data.get('product', 'MIS')).upper()
+    if product not in _ALLOWED_PRODUCT:
+        return None, f'product must be one of {sorted(_ALLOWED_PRODUCT)}'
+
+    # Exchange is distinct from segment. Use the caller's value if valid, else
+    # derive it (so a SENSEX/BSE order isn't silently routed to NSE).
+    exchange = str(data.get('exchange', '')).upper() or _derive_exchange(symbol, segment)
+    if exchange not in _ALLOWED_EXCHANGE:
+        return None, f'exchange must be one of {sorted(_ALLOWED_EXCHANGE)}'
+
+    try:
+        qty = int(data.get('quantity'))
+    except (TypeError, ValueError):
+        return None, 'quantity must be an integer'
+    if qty <= 0 or qty > _MAX_QUANTITY:
+        return None, f'quantity out of range (1..{_MAX_QUANTITY})'
+
+    # Price required for LIMIT and SL (stop-limit); trigger_price required for
+    # SL and SL_M (stop orders). MARKET needs neither.
+    price = data.get('price')
+    if order_type in ('LIMIT', 'SL'):
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            return None, 'price (>0) is required for LIMIT/SL orders'
+        if price <= 0:
+            return None, 'price must be positive'
+
+    trigger_price = data.get('trigger_price')
+    if order_type in ('SL', 'SL_M'):
+        try:
+            trigger_price = float(trigger_price)
+        except (TypeError, ValueError):
+            return None, 'trigger_price (>0) is required for SL/SL_M orders'
+        if trigger_price <= 0:
+            return None, 'trigger_price must be positive'
+
+    return {
+        'trading_symbol': symbol, 'quantity': qty, 'transaction_type': txn,
+        'order_type': order_type, 'segment': segment, 'exchange': exchange,
+        'price': price, 'trigger_price': trigger_price, 'product': product,
+    }, None
+
+
+# ==========================================
 # ROUTES
 # ==========================================
 
@@ -91,31 +210,29 @@ def get_paper_broker(user_id):
 def place_order():
     """Place an order with Concurrency Locking"""
     user_id = get_jwt_identity()
-    data = request.get_json()
-    
-    required = ['trading_symbol', 'quantity', 'transaction_type']
-    for field in required:
-        if not data.get(field):
-            return jsonify({'error': f'{field} is required'}), 400
-    
-    # 1. Acquire Lock
-    with acquire_trade_lock(user_id) as acquired:
-        if not acquired:
-            return jsonify({'error': 'System busy. Previous order processing...'}), 429
-            
-        # 2. Determine Execution Mode
-        execution_mode = get_user_execution_mode(user_id)
+    data = request.get_json(silent=True) or {}
 
-        # 3. Execution Logic
+    # Strict validation before anything touches a broker.
+    clean, err = _validate_order(data)
+    if err:
+        return jsonify({'error': err}), 400
+
+    # Determine mode BEFORE locking so the lock can fail-closed for LIVE.
+    execution_mode = get_user_execution_mode(user_id)
+
+    with acquire_trade_lock(user_id, execution_mode=execution_mode) as acquired:
+        if not acquired:
+            return jsonify({'error': 'System busy or lock unavailable. Try again.'}), 429
+
         if execution_mode == 'PAPER':
             broker = get_paper_broker(user_id)
             result = broker.place_order(
-                trading_symbol=data['trading_symbol'],
-                quantity=data['quantity'],
-                transaction_type=data['transaction_type'],
-                order_type=data.get('order_type', 'MARKET'),
-                price=data.get('price'),
-                segment=data.get('segment', 'FNO')
+                trading_symbol=clean['trading_symbol'],
+                quantity=clean['quantity'],
+                transaction_type=clean['transaction_type'],
+                order_type=clean['order_type'],
+                price=clean['price'],
+                segment=clean['segment']
             )
         else:
             # LIVE MODE
@@ -123,18 +240,19 @@ def place_order():
             groww = get_groww_client(user_id)
             if not groww:
                 return jsonify({'error': 'Broker not connected'}), 400
-                
+
             result = groww.place_order(
-                trading_symbol=data['trading_symbol'],
-                quantity=data['quantity'],
-                transaction_type=data['transaction_type'],
-                order_type=data.get('order_type', 'MARKET'),
-                price=data.get('price', 0),
-                trigger_price=data.get('trigger_price'),
-                product=data.get('product', 'MIS'),
-                segment=data.get('segment', 'FNO')
+                trading_symbol=clean['trading_symbol'],
+                quantity=clean['quantity'],
+                transaction_type=clean['transaction_type'],
+                order_type=clean['order_type'],
+                price=clean['price'] or 0,
+                trigger_price=clean['trigger_price'],
+                product=clean['product'],
+                exchange=clean['exchange'],
+                segment=clean['segment']
             )
-        
+
         if result.get('success'):
             return jsonify(result)
         return jsonify({'error': result.get('error', 'Order failed')}), 400
@@ -378,12 +496,11 @@ def get_limits():
             'message': 'Broker not connected'
         })
 
-    # Return dummy for Live if not implemented, or fetch if available
-    return jsonify({
-        'available_balance': 0,
-        'used_margin': 0, 
-        'message': 'Live balance fetch not fully implemented in demo'
-    })
+    # Fetch real margins from Groww.
+    result = groww.get_margins(segment=request.args.get('segment', 'FNO'))
+    if result.get('success'):
+        return jsonify(result.get('data', {}))
+    return jsonify({'error': result.get('error', 'Failed to fetch live margins')}), 400
 
 
 @trade_bp.route('/paper/reset', methods=['POST'])
@@ -548,9 +665,18 @@ def quick_trade():
     if str(strategy.get('user_id')) != user_id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    # 2. Determine quantity
+    # 2. Determine + validate quantity / transaction_type (user-controlled).
     quantity = quantity_override or strategy.get('quantity', 50)
-    
+    try:
+        quantity = int(quantity)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'quantity must be an integer'}), 400
+    if quantity <= 0 or quantity > _MAX_QUANTITY:
+        return jsonify({'error': f'quantity out of range (1..{_MAX_QUANTITY})'}), 400
+    if str(transaction_type).upper() not in _ALLOWED_TXN:
+        return jsonify({'error': 'transaction_type must be BUY or SELL'}), 400
+    transaction_type = str(transaction_type).upper()
+
     # 3. Resolve trading symbol (ATM Logic)
     try:
         from services import get_trading_engine
@@ -584,8 +710,9 @@ def quick_trade():
                 if not broker:
                     return jsonify({'error': 'Broker not connected for LIVE trade'}), 400
             
-            # Place Order
-            result = broker.place_order(
+            # Place Order. Thread the correct exchange only for the LIVE broker
+            # (paper_broker.place_order doesn't take an exchange kwarg).
+            order_kwargs = dict(
                 trading_symbol=trading_symbol,
                 quantity=quantity,
                 transaction_type=transaction_type,
@@ -593,6 +720,9 @@ def quick_trade():
                 product=strategy.get('product', 'MIS'),
                 segment='FNO'
             )
+            if execution_mode != 'PAPER':
+                order_kwargs['exchange'] = _derive_exchange(trading_symbol, 'FNO')
+            result = broker.place_order(**order_kwargs)
             
             if result.get('success'):
                 # Record trade with strategy link

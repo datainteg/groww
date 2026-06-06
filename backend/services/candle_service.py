@@ -80,7 +80,10 @@ class CandleService:
                 'trading_symbol': final_symbol,
                 'start_time': start_time,
                 'end_time': end_time,
-                'intervalInMinutes': int(interval)  # Critical: This determines candle timeframe
+                # Groww REST expects snake_case 'interval_in_minutes'. The old
+                # camelCase key was ignored by the API, so every request silently
+                # returned default-interval candles regardless of `interval`.
+                'interval_in_minutes': int(interval)
             }
             
             # Retry/backoff on transient errors (GET is idempotent/safe to retry).

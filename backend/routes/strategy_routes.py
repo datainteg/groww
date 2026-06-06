@@ -112,24 +112,41 @@ def list_strategies():
     return jsonify(db.get_strategies_by_user(user_id))
 
 
+def _get_owned_strategy(strategy_id, user_id):
+    """Load a strategy and enforce ownership. Returns (strategy, error_response).
+    error_response is a (json, status) tuple when not found / not owned."""
+    strategy = db.get_strategy_by_id(strategy_id)
+    if not strategy:
+        return None, (jsonify({'error': 'Strategy not found'}), 404)
+    if str(strategy.get('user_id')) != str(user_id):
+        return None, (jsonify({'error': 'Unauthorized'}), 403)
+    return strategy, None
+
+
 @strategy_bp.route('/<strategy_id>', methods=['GET'])
 @jwt_required()
 def get_strategy(strategy_id):
-    strategy = db.get_strategy_by_id(strategy_id)
-    if not strategy: return jsonify({'error': 'Strategy not found'}), 404
+    user_id = get_jwt_identity()
+    strategy, err = _get_owned_strategy(strategy_id, user_id)
+    if err: return err
     return jsonify(strategy)
 
 
 @strategy_bp.route('/<strategy_id>', methods=['PUT'])
 @jwt_required()
 def update_strategy(strategy_id):
-    data = request.get_json()
-    strategy = db.get_strategy_by_id(strategy_id)
-    if strategy and strategy.get('is_active'):
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    strategy, err = _get_owned_strategy(strategy_id, user_id)
+    if err: return err
+    if strategy.get('is_active'):
         return jsonify({'error': 'Cannot update active strategy. Stop it first.'}), 400
-    
+
     if 'atm_offset' in data:
-        data['atm_offset'] = int(data['atm_offset'])
+        try:
+            data['atm_offset'] = int(data['atm_offset'])
+        except (TypeError, ValueError):
+            return jsonify({'error': 'atm_offset must be an integer'}), 400
 
     db.update_strategy(strategy_id, data)
     return jsonify({'message': 'Strategy updated'})
@@ -138,8 +155,10 @@ def update_strategy(strategy_id):
 @strategy_bp.route('/<strategy_id>', methods=['DELETE'])
 @jwt_required()
 def delete_strategy(strategy_id):
-    strategy = db.get_strategy_by_id(strategy_id)
-    if strategy and strategy.get('is_active'):
+    user_id = get_jwt_identity()
+    strategy, err = _get_owned_strategy(strategy_id, user_id)
+    if err: return err
+    if strategy.get('is_active'):
         return jsonify({'error': 'Cannot delete active strategy'}), 400
     db.delete_strategy(strategy_id)
     return jsonify({'message': 'Strategy deleted'})
@@ -149,14 +168,23 @@ def delete_strategy(strategy_id):
 @jwt_required()
 def start_strategy(strategy_id):
     user_id = get_jwt_identity()
-    strategy = db.get_strategy_by_id(strategy_id)
-    if not strategy: return jsonify({'error': 'Strategy not found'}), 404
-    
+    strategy, err = _get_owned_strategy(strategy_id, user_id)
+    if err: return err
+
     settings = db.get_settings(user_id)
+
+    # Per-strategy limits (kill switch, daily count, per-strategy P&L).
     can_trade, reason = risk_manager.can_strategy_trade(strategy, settings)
-    
-    if not can_trade: return jsonify({'success': False, 'message': reason}), 400
-    
+    if not can_trade:
+        return jsonify({'success': False, 'message': reason}), 400
+
+    # Portfolio limits (max_concurrent_trades, overall P&L) — previously bypassable
+    # by activating many strategies at once.
+    active_count = len(db.get_active_trades(user_id))
+    can_overall, overall_reason = risk_manager.can_overall_trade(settings, active_count)
+    if not can_overall:
+        return jsonify({'success': False, 'message': overall_reason}), 400
+
     db.update_strategy(strategy_id, {'is_active': True})
     return jsonify({'success': True, 'message': 'Strategy started'})
 
@@ -164,7 +192,10 @@ def start_strategy(strategy_id):
 @strategy_bp.route('/<strategy_id>/stop', methods=['POST'])
 @jwt_required()
 def stop_strategy(strategy_id):
-    data = request.get_json() or {}
+    user_id = get_jwt_identity()
+    strategy, err = _get_owned_strategy(strategy_id, user_id)
+    if err: return err
+    data = request.get_json(silent=True) or {}
     reason = data.get('reason', 'Manual')
     db.update_strategy(strategy_id, {'is_active': False})
     return jsonify({'success': True, 'message': f'Strategy stopped: {reason}'})
@@ -284,9 +315,10 @@ def get_all_indicators(symbol):
 @strategy_bp.route('/<strategy_id>/analyze', methods=['GET'])
 @jwt_required()
 def analyze_strategy(strategy_id):
-    strategy = db.get_strategy_by_id(strategy_id)
-    if not strategy: return jsonify({'error': 'Strategy not found'}), 404
-    
+    user_id = get_jwt_identity()
+    strategy, err = _get_owned_strategy(strategy_id, user_id)
+    if err: return err
+
     symbol = strategy.get('index', 'NIFTY')
     candles = candle_service.get_candles_for_analysis(db, symbol, '5')
     

@@ -457,9 +457,11 @@ class GrowwClient:
                 'trading_symbol': final_symbol,
                 'start_time': start_time,
                 'end_time': end_time,
-                'intervalInMinutes': interval
+                # Groww REST expects snake_case 'interval_in_minutes' (camelCase
+                # was silently ignored -> wrong-timeframe candles).
+                'interval_in_minutes': interval
             }
-            
+
             result = self._make_request('GET', '/v1/historical/candle/range', params=params)
             
             if result.get('status') == 'SUCCESS':
@@ -684,15 +686,19 @@ class GrowwClient:
         Returns:
             Dict with success status and position data
         """
+        # Per Groww docs: GET /v1/positions/user (current-day positions).
         params = {'segment': segment}
-        result = self._make_request('GET', '/v1/position/list', params=params)
-        
+        result = self._make_request('GET', '/v1/positions/user', params=params)
+
         if result.get('status') == 'SUCCESS':
-            positions = result.get('payload', {}).get('position_list', [])
+            payload = result.get('payload', {})
+            # Be tolerant of the wrapper key across API versions.
+            positions = (payload.get('positions') or payload.get('position_list')
+                         or (payload if isinstance(payload, list) else []))
             return {'success': True, 'data': positions}
-        
+
         return {
-            'success': False, 
+            'success': False,
             'error': result.get('error', {}).get('message', 'Failed to get positions'),
             'data': []
         }
@@ -704,31 +710,31 @@ class GrowwClient:
         Returns:
             Dict with success status and holdings data
         """
-        result = self._make_request('GET', '/v1/holding/list')
-        
+        # Per Groww docs: GET /v1/holdings/user.
+        result = self._make_request('GET', '/v1/holdings/user')
+
         if result.get('status') == 'SUCCESS':
-            holdings = result.get('payload', {}).get('holding_list', [])
+            payload = result.get('payload', {})
+            holdings = (payload.get('holdings') or payload.get('holding_list')
+                        or (payload if isinstance(payload, list) else []))
             return {'success': True, 'data': holdings}
-        
+
         return {
-            'success': False, 
+            'success': False,
             'error': result.get('error', {}).get('message', 'Failed to get holdings'),
             'data': []
         }
     
     def get_margins(self, segment: str = 'FNO') -> Dict:
         """
-        Get margin/fund details.
-        
-        Args:
-            segment: 'FNO' or 'CASH'
-            
-        Returns:
-            Dict with margin details
+        Get available user margin / funds.
+
+        Per Groww docs this is a user-level endpoint (GET /v1/margins/detail/user)
+        with no segment parameter; `segment` is accepted for backward-compat but
+        not sent. Response includes clear_cash, net_margin_used, collateral, etc.
         """
-        params = {'segment': segment}
-        result = self._make_request('GET', '/v1/fund/margin', params=params)
-        
+        result = self._make_request('GET', '/v1/margins/detail/user')
+
         if result.get('status') == 'SUCCESS':
             return {'success': True, 'data': result.get('payload', {})}
         

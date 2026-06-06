@@ -56,36 +56,35 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = config.JWT_SECRET_KEY
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = config.JWT_ACCESS_TOKEN_EXPIRES
     
-    # CORS Configuration - Handle preflight requests
-    CORS(app, 
-         resources={r"/api/*": {"origins": "*"}},
+    # CORS: explicit origin allowlist (env CORS_ORIGINS, comma-separated).
+    # NEVER pair a wildcard origin with credentials. flask-cors handles the
+    # preflight for allowed origins, so no manual Origin reflection is needed
+    # (the old after_request echoed any Origin back with credentials -> CSRF risk).
+    cors_origins = [o.strip() for o in os.getenv(
+        'CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173'
+    ).split(',') if o.strip()]
+    CORS(app,
+         resources={r"/api/*": {"origins": cors_origins}},
          supports_credentials=True,
          allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-    
-    # Handle preflight requests explicitly
-    @app.before_request
-    def handle_preflight():
-        if request.method == "OPTIONS":
-            response = app.make_default_options_response()
-            headers = response.headers
-            headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-            headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-            headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-            headers['Access-Control-Allow-Credentials'] = 'true'
-            headers['Access-Control-Max-Age'] = '3600'
-            return response
-    
-    @app.after_request
-    def after_request(response):
-        origin = request.headers.get('Origin', '*')
-        response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        return response
-    
+
     jwt = JWTManager(app)
+
+    # JWT revocation: a logged-out token's JTI is stored in Redis; reject it here.
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        jti = jwt_payload.get('jti')
+        if not jti:
+            return False
+        from database.redis_client import redis_client
+        client = getattr(redis_client, 'client', None)
+        if not client:
+            return False
+        try:
+            return client.get(f'jwt_blocklist:{jti}') is not None
+        except Exception:
+            return False
     
     # JWT Error Handlers
     @jwt.unauthorized_loader
