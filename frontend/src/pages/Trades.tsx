@@ -91,8 +91,8 @@ export default function Trades() {
       totalPnl: finalRealized + finalUnrealized,
       realized: finalRealized,
       unrealized: finalUnrealized,
-      winRate: (dailyPnl?.total_trades || 0) > 0 
-        ? ((dailyPnl?.winning || 0) / (dailyPnl?.total_trades || 1)) * 100 
+      winRate: (dailyPnl?.trades_today || 0) > 0
+        ? ((dailyPnl?.winning || 0) / (dailyPnl?.trades_today || 1)) * 100
         : winRate,
       wins: dailyPnl?.winning || wins,
       losses: dailyPnl?.losing || losses
@@ -262,7 +262,6 @@ export default function Trades() {
     }
   }
 
-  const activeStrategies = strategies.filter(s => s.is_active)
   const { slPrice, targetPrice } = getCalculatedPrices()
 
   return (

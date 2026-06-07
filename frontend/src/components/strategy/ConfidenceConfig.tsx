@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { 
-  Zap, Shield, Target, TrendingUp, Volume2, 
+  Zap, Shield, TrendingUp, Volume2,
   Clock, ChevronDown, ChevronUp, Info, Gauge
 } from 'lucide-react'
 import type { ConfidencePreset, AllowedSignals } from '../../types'

@@ -1,5 +1,5 @@
 import api from './axios'
-import type { MarketStatus, IndexData, Quote, Instrument } from '../types'
+import type { MarketStatus, IndexData, Instrument } from '../types'
 
 const unwrapArray = <T>(res: any): T[] => {
   if (Array.isArray(res)) return res
@@ -34,7 +34,13 @@ export const marketApi = {
       spot_price: data?.spot_price || 0,
       strikes: unwrapArray(data?.strikes),
     }
-  }
+  },
+
+  getLtp: async (symbol: string): Promise<{ ltp: number }> => {
+    const res = await api.get(`/market/ltp/${symbol}`)
+    const data = unwrapObject<any>(res.data)
+    return { ltp: Number(data?.ltp ?? data?.price ?? 0) }
+  },
 }
 
 export const instrumentsApi = {
@@ -73,5 +79,14 @@ export const instrumentsApi = {
     const res = await api.get(`/instruments/expiries/${underlying}`)
     const data = unwrapObject<any>(res.data)
     return Array.isArray(data) ? data : (data?.expiries || [])
-  }
+  },
+
+  getCount: async (): Promise<{ total: number; by_underlying: Record<string, number> }> => {
+    const res = await api.get('/instruments/last-sync')
+    const data = unwrapObject<any>(res.data)
+    return {
+      total: Number(data?.total ?? data?.count ?? 0),
+      by_underlying: data?.by_underlying ?? {},
+    }
+  },
 }

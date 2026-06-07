@@ -62,7 +62,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     try {
       const response = await instrumentsApi.getExpiries(underlying)
       set(state => ({
-        expiries: { ...state.expiries, [underlying]: response.expiries || [] }
+        expiries: { ...state.expiries, [underlying]: Array.isArray(response) ? response : [] }
       }))
     } catch (err: any) {
       console.error('Expiries error:', err)

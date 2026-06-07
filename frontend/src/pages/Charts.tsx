@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, LineStyle, Time } from 'lightweight-charts'
 import { 
-  Activity, RefreshCw, Layers, 
-  TrendingUp, ChevronDown, Zap, Target, TrendingDown, Minus,
+  Activity, RefreshCw,
+  TrendingUp, ChevronDown, Zap, Target,
   Plus, Trash2, X, PenTool
 } from 'lucide-react'
 import { useStrategyStore, useDirectionStore, useUIStore } from '../store'
@@ -214,7 +214,7 @@ export default function Charts() {
       const addSysLine = (price: number, title: string, color: string) => {
         if (!price) return
         priceLinesRef.current.push(candleSeriesRef.current?.createPriceLine({
-          price, color, title, lineWidth: 1, lineStyle: LineStyle.ShortDash, axisLabelVisible: true
+          price, color, title, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true
         }))
       }
       addSysLine(levels.r1, 'R1', '#ef4444'); addSysLine(levels.s1, 'S1', '#10b981')

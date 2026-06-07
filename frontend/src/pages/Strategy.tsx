@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { 
-  Plus, Play, Pause, Edit2, Trash2, Target, TrendingUp, RefreshCw, 
+  Plus, Play, Pause, Edit2, Trash2, Target, RefreshCw,
   Zap, AlertTriangle, CheckCircle2, Settings, Shield, Clock, 
   Activity, Briefcase, Info, RotateCcw, Gauge
 } from 'lucide-react'
@@ -78,7 +78,7 @@ export default function StrategyPage() {
   
   const [loadingExpiries, setLoadingExpiries] = useState(false)
   const [loadingAtm, setLoadingAtm] = useState(false)
-  const [loadingSymbols, setLoadingSymbols] = useState(false)
+  const [, setLoadingSymbols] = useState(false)
   
   const [formError, setFormError] = useState('')
 
@@ -87,8 +87,7 @@ export default function StrategyPage() {
   const [atmInfo, setAtmInfo] = useState<AtmResponse | null>(null)
   const [ceInstruments, setCeInstruments] = useState<Instrument[]>([])
   const [peInstruments, setPeInstruments] = useState<Instrument[]>([])
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [lotSize, setLotSize] = useState(50)
+  const [, setLotSize] = useState(50)
 
   useEffect(() => {
     fetchStrategies()

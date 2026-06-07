@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Shield, Zap, AlertTriangle, RefreshCw, Power, Save, MessageSquare, CheckCircle, XCircle } from 'lucide-react'
+import { Shield, Zap, AlertTriangle, RefreshCw, Power, Save, MessageSquare, CheckCircle } from 'lucide-react'
 import { useUIStore, useTradeStore, useStrategyStore } from '../store'
 import { settingsApi } from '../api/settings.api'
 

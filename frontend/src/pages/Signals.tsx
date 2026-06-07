@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { 
-  TrendingUp, TrendingDown, Activity, Zap, BarChart3, 
-  Target, Shield, ArrowUp, ArrowDown, Minus, RefreshCw, 
+  TrendingUp, TrendingDown, Activity, Zap, BarChart3,
+  Target, RefreshCw,
   Layers, Clock
 } from 'lucide-react'
 import { useStrategyStore } from '../store/strategy.store'

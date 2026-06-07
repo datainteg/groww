@@ -278,14 +278,18 @@ export interface Decision {
   patterns: PatternInfo[]
   pattern_count: number
   
-  // Support/Resistance
+  // Support/Resistance (backend sends score/signal/levels; legacy flat fields optional)
   support_resistance?: {
-    support_1: number
-    support_2: number
-    resistance_1: number
-    resistance_2: number
-    pivot: number
+    score?: number
+    signal?: string
+    levels?: Record<string, number>
+    support_1?: number
+    support_2?: number
+    resistance_1?: number
+    resistance_2?: number
+    pivot?: number
   }
+  net_score?: number
   
   // Price info
   current_price: number
@@ -422,6 +426,7 @@ export interface Settings {
   square_off_time?: string
   telegram_configured: boolean
   telegram_chat_id?: string
+  telegram_bot_token?: string
 }
 
 // ==================== UI TYPES ====================

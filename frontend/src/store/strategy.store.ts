@@ -61,9 +61,9 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
 
   fetchEngineStatus: async () => {
     try {
-      const result = await strategyApi.getStatus()
-      // FIX: Handle wrapped response { status: {...} } vs direct {...}
-      const engineStatus = result.status || result
+      const result: any = await strategyApi.getStatus()
+      // Handle wrapped response { status: {...} } vs direct {...}
+      const engineStatus = result?.status || result
       set({ engineStatus })
     } catch (err: any) {
       console.error('Engine status error:', err)
@@ -73,9 +73,9 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   fetchDecision: async (symbol = 'NIFTY', interval = 5): Promise<Decision | null> => {
     set({ isAnalyzing: true, error: null })
     try {
-      const result = await strategyApi.getDecision(symbol, interval)
-      // FIX: Handle wrapped response
-      const decision = result.decision || result.data || result
+      const result: any = await strategyApi.getDecision(symbol, interval)
+      // Handle wrapped response
+      const decision = result?.decision || result?.data || result
 
       set(state => ({
         decision,
@@ -93,8 +93,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   analyzeStrategy: async (id: string) => {
     set({ isAnalyzing: true, error: null })
     try {
-      const result = await strategyApi.analyzeStrategy(id)
-      const decision = result.decision || result.data || result
+      const result: any = await strategyApi.analyzeStrategy(id)
+      const decision = result?.decision || result?.data || result
       set({ decision, isAnalyzing: false })
     } catch (err: any) {
       set({ isAnalyzing: false, error: err.response?.data?.error || err.message })
@@ -104,12 +104,12 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   createStrategy: async (data: StrategyFormData): Promise<string> => {
     set({ isLoading: true, error: null })
     try {
-      const result = await strategyApi.create(data)
+      const result: any = await strategyApi.create(data)
       await get().fetchStrategies()
       set({ isLoading: false })
-      
-      // FIX: Handle various ID field names from backend
-      return result.strategy_id || result.id || result._id || ''
+
+      // Handle various ID field names from backend
+      return result?.strategy_id || result?.id || result?._id || ''
     } catch (err: any) {
       set({ isLoading: false, error: err.response?.data?.error || err.message })
       throw err

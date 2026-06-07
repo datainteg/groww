@@ -2,9 +2,8 @@
  * Market Direction Card Component
  * Displays market direction (UP/DOWN/NEUTRAL) with strength gauge
  */
-import { useEffect } from 'react'
-import { 
-  TrendingUp, TrendingDown, Minus, Activity, 
+import {
+  TrendingUp, TrendingDown, Minus, Activity,
   BarChart3, Zap, Volume2, Target
 } from 'lucide-react'
 import type { MarketDirection } from '../../types'
