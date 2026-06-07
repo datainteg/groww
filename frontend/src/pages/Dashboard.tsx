@@ -241,7 +241,7 @@ export default function Dashboard() {
   const { strategies, engineStatus, decisions, fetchStrategies, fetchEngineStatus, fetchDecision, startStrategy, stopStrategy } = useStrategyStore()
   const { dailyPnl, activeTrades, fetchDailyPnl, fetchActiveTrades } = useTradeStore()
   const { settings, addToast } = useUIStore()
-  const { directions, fetchAllDirections, fetchDirection } = useDirectionStore()
+  const { directions, fetchAllDirections, refreshAllForce, fetchDirection } = useDirectionStore()
   const { health } = useHealthStore()
   const { user } = useAuthStore()
   
@@ -269,15 +269,17 @@ export default function Dashboard() {
   // 2. Market Direction Polling (30s)
   // This updates the 'directions' store. Since the modal uses 'directions[selectedSymbol]',
   // it will automatically update when the store updates.
-  useEffect(() => { 
-    // Initial load (Shows spinner)
-    fetchAllDirections(false) 
-    
-    // Background polling (Silent - No spinner)
-    const timer = setInterval(() => fetchAllDirections(true), 30000) 
-    
-    return () => clearInterval(timer) 
-  }, [fetchAllDirections])
+  useEffect(() => {
+    // Initial: fast cached paint, then immediately force a fresh recompute.
+    fetchAllDirections(false)
+    refreshAllForce(true)
+
+    // Real-time: force-refresh all indices every 15s (same as clicking a card,
+    // but silent) so the cards stay live instead of showing a stale cache.
+    const timer = setInterval(() => refreshAllForce(true), 15000)
+
+    return () => clearInterval(timer)
+  }, [fetchAllDirections, refreshAllForce])
 
   // 3. AI Decision Polling (When symbol changes)
   useEffect(() => { 
@@ -294,8 +296,8 @@ export default function Dashboard() {
         fetchEngineStatus(), 
         fetchDailyPnl(), 
         fetchActiveTrades(), 
-        fetchDecision(analysisSymbol, 5), 
-        fetchAllDirections()
+        fetchDecision(analysisSymbol, 5),
+        refreshAllForce(true)
       ])
       addToast('success', 'Dashboard refreshed')
     } catch (error) {
@@ -402,8 +404,8 @@ export default function Dashboard() {
             <span className="text-[10px] px-2 py-0.5 bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-full font-bold">LIVE</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 dark:text-dark-400">{currentTime}</span>
-            <button onClick={() => fetchAllDirections()} className="p-1.5 rounded-lg text-gray-500 dark:text-dark-400 hover:bg-gray-100 dark:hover:bg-dark-800 transition-colors">
+            <span className="text-xs text-gray-500 dark:text-dark-400">Auto · 15s</span>
+            <button onClick={() => refreshAllForce(false)} aria-label="Refresh directions" className="p-1.5 rounded-lg text-gray-500 dark:text-dark-400 hover:bg-gray-100 dark:hover:bg-dark-800 transition-colors">
               <RefreshCw className="w-4 h-4" />
             </button>
           </div>

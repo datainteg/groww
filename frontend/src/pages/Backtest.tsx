@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FlaskConical, Play, RefreshCw, AlertTriangle, CheckCircle2, XCircle, BarChart3, Activity, GitCompare, Brain, Repeat } from 'lucide-react'
 import { useBacktestStore, useUIStore } from '../store'
-import { backtestApi } from '../api'
+import { backtestApi, instrumentsApi } from '../api'
 import { EquityCurveChart, DailyPnlChart } from '../components/backtest/BacktestCharts'
 import type { BacktestConfig, BacktestMode } from '../types'
 
@@ -48,8 +48,41 @@ export default function Backtest() {
     costs: { slippage_pct: 0.0005, brokerage_per_order: 20 },
   })
 
+  // OPTION_PREMIUM: auto-load real strikes (no manual symbol typing).
+  const [optExpiries, setOptExpiries] = useState<string[]>([])
+  const [optExpiry, setOptExpiry] = useState('')
+  const [optInstruments, setOptInstruments] = useState<any[]>([])
+  const [loadingOpt, setLoadingOpt] = useState(false)
+
   useEffect(() => { fetchRuns() }, [])
   useEffect(() => { if (error) addToast('error', error) }, [error])
+
+  // Load expiries for the chosen index when Option Premium is active.
+  useEffect(() => {
+    if (cfg.mode !== 'OPTION_PREMIUM' || !cfg.symbol) return
+    let alive = true
+    instrumentsApi.getExpiries(cfg.symbol)
+      .then((list: string[]) => { if (alive) { setOptExpiries(list || []); if (!optExpiry && list?.length) setOptExpiry(list[0]) } })
+      .catch(() => { if (alive) setOptExpiries([]) })
+    return () => { alive = false }
+  }, [cfg.mode, cfg.symbol])
+
+  // Load strikes (CE/PE) for the chosen expiry; auto-select the first.
+  useEffect(() => {
+    if (cfg.mode !== 'OPTION_PREMIUM' || !cfg.symbol || !optExpiry) return
+    let alive = true
+    setLoadingOpt(true)
+    instrumentsApi.getInstruments(cfg.symbol, optExpiry, cfg.option_type || 'CE')
+      .then((rows: any[]) => {
+        if (!alive) return
+        const sorted = (rows || []).sort((a, b) => (a.strike_price || 0) - (b.strike_price || 0))
+        setOptInstruments(sorted)
+        setCfg((c) => ({ ...c, option_symbol: sorted[0]?.trading_symbol || '' }))
+      })
+      .catch(() => { if (alive) setOptInstruments([]) })
+      .finally(() => { if (alive) setLoadingOpt(false) })
+    return () => { alive = false }
+  }, [cfg.mode, cfg.symbol, optExpiry, cfg.option_type])
 
   const p = (k: string, v: any) => setCfg((c) => ({ ...c, parameters: { ...c.parameters, [k]: v } }))
   const r = (k: string, v: any) => setCfg((c) => ({ ...c, risk: { ...c.risk, [k]: v } }))
@@ -129,23 +162,29 @@ export default function Backtest() {
             {cfg.mode === 'OPTION_PREMIUM' && (
               <div className="space-y-2 rounded-lg border border-cyan-200 dark:border-cyan-500/20 bg-cyan-50 dark:bg-cyan-500/5 p-3">
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="col-span-2">
-                    <Field label="Option symbol">
-                      <input className="input-field" value={cfg.option_symbol || ''} placeholder="e.g. NIFTY25JAN23000CE"
-                        onChange={(e) => setCfg({ ...cfg, option_symbol: e.target.value.trim().toUpperCase() })} />
-                    </Field>
-                  </div>
                   <Field label="Type">
                     <select className="input-field" value={cfg.option_type || 'CE'} onChange={(e) => setCfg({ ...cfg, option_type: e.target.value as 'CE' | 'PE' })}>
                       <option value="CE">CE</option>
                       <option value="PE">PE</option>
                     </select>
                   </Field>
+                  <Field label="Expiry">
+                    <select className="input-field" value={optExpiry} onChange={(e) => setOptExpiry(e.target.value)}>
+                      {!optExpiries.length && <option value="">—</option>}
+                      {optExpiries.map((e) => <option key={e} value={e}>{e}</option>)}
+                    </select>
+                  </Field>
+                  <Field label={`Strike ${loadingOpt ? '…' : ''}`}>
+                    <select className="input-field" value={cfg.option_symbol || ''} onChange={(e) => setCfg({ ...cfg, option_symbol: e.target.value })}>
+                      {!optInstruments.length && <option value="">No strikes</option>}
+                      {optInstruments.map((i) => <option key={i._id || i.trading_symbol} value={i.trading_symbol}>{i.strike_price} — {i.trading_symbol}</option>)}
+                    </select>
+                  </Field>
                 </div>
                 <p className="text-[11px] text-cyan-700 dark:text-cyan-300">
-                  OPTION_PREMIUM needs that strike's <b>real candles synced</b> first
-                  (<span className="font-mono">POST /api/strategy/candles/&lt;symbol&gt;/sync</span>). If not synced,
-                  the run fails with a clear message — use Index Proxy for directional validation.
+                  Strikes load automatically for the index + expiry. The chosen strike's
+                  <b> real candles must be synced</b> first, else the run returns a clear message —
+                  use Index Proxy for directional validation.
                 </p>
               </div>
             )}

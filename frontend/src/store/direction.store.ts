@@ -19,6 +19,9 @@ interface DirectionState {
   // Actions
   // FIX: Added isBackground param to prevent UI flashing during polling
   fetchAllDirections: (isBackground?: boolean) => Promise<void>
+  // Force a fresh recompute for all indices (used by real-time polling) — same as
+  // clicking a card, but silent (no spinner flash).
+  refreshAllForce: (silent?: boolean) => Promise<void>
   fetchDirection: (symbol: string, forceRefresh?: boolean) => Promise<MarketDirection | null>
   setSelectedSymbol: (symbol: string) => void
   getDirection: (symbol: string) => MarketDirection | null
@@ -60,6 +63,22 @@ export const useDirectionStore = create<DirectionState>((set, get) => ({
         isLoading: false,
         error: err.response?.data?.error || err.message || 'Failed to fetch directions'
       })
+    }
+  },
+
+  refreshAllForce: async (silent = true) => {
+    if (!silent) set({ isLoading: true, error: null })
+    const syms = ['NIFTY', 'BANKNIFTY', 'SENSEX']
+    try {
+      const results = await Promise.allSettled(syms.map((s) => directionApi.getBySymbol(s, true)))
+      const merged: Record<string, MarketDirection> = { ...get().directions }
+      let ts = get().lastUpdate
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') { merged[syms[i]] = r.value; ts = r.value.timestamp }
+      })
+      set({ directions: merged, lastUpdate: ts, isLoading: false })
+    } catch {
+      set({ isLoading: false })
     }
   },
 
