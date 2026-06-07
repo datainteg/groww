@@ -178,6 +178,12 @@ def test_verdict_too_few_trades():
     assert v['grade'] == 'F' and v['paper_ready'] is False
 
 
+def test_build_calibration_features_backfill():
+    assert R.build_calibration_features({'calibration_features': [0.7, 5, 1, 3]}) == [0.7, 5.0, 1.0, 3.0]
+    bf = R.build_calibration_features({'confidence': 0.6, 'bullish_score': 4, 'bearish_score': 2, 'net_score': 2})
+    assert bf == [0.6, 4.0, 2.0, 2.0]
+
+
 def test_validate_config_rejects():
     assert R._validate_config({'risk': {'risk_pct': 0.2}}) is not None      # > 0.05
     assert R._validate_config({'parameters': {'sl_points': 0}}) is not None  # <= 0

@@ -148,6 +148,63 @@ def test_accuracy_gate_pass(monkeypatch):
     assert ok
 
 
+def test_data_freshness_no_candles_blocks_live():
+    # An unknown symbol has no candles -> LIVE blocks.
+    ok, _ = trade_safety.check_data_freshness('NO_SUCH_SYMBOL_ZZZ', '5', mode='LIVE')
+    assert ok is False
+
+
+def test_data_freshness_crash_live_fails_closed_paper_open(monkeypatch):
+    from services.candle_service import candle_service
+
+    def _boom(*a, **k):
+        raise RuntimeError('checker boom')
+
+    monkeypatch.setattr(candle_service, 'get_candles', _boom)
+    assert trade_safety.check_data_freshness('NIFTY', '5', mode='LIVE')[0] is False
+    assert trade_safety.check_data_freshness('NIFTY', '5', mode='PAPER')[0] is True
+
+
+def test_reconcile_live_mismatch_trips_kill_switch(monkeypatch):
+    from services import trading_engine as TE
+
+    class _Coll:
+        def find(self, *a, **k):
+            return []
+
+        def insert_one(self, *a, **k):
+            return None
+
+    class _FakeEngineDB:
+        def __init__(self):
+            self.trades = _Coll()
+            self.db = {'reconciliation_mismatch': _Coll()}
+            self.killed = None
+            self.report = None
+
+        def get_active_trades(self, uid):
+            return [{'trading_symbol': 'NIFTY25000CE', 'quantity': 50, 'strategy_id': 's1'}]
+
+        def upsert_settings(self, uid, d):
+            self.killed = d
+
+        def save_reconciliation_report(self, uid, r):
+            self.report = r
+
+    fake = _FakeEngineDB()
+    monkeypatch.setattr(TE, 'db', fake)
+    monkeypatch.setattr(TE, 'telegram_alert',
+                        type('X', (), {'send_kill_switch_alert': staticmethod(lambda *a, **k: None)})())
+
+    eng = TE.TradingEngine.__new__(TE.TradingEngine)
+    eng.user_id = 'u1'
+    eng.execution_mode = 'LIVE'
+    res = eng.reconcile_positions([])  # broker flat, DB has an open trade -> mismatch
+    assert res['healthy'] is False
+    assert fake.killed and fake.killed.get('kill_switch') is True
+    assert fake.report and fake.report['status'] == 'blocked'
+
+
 def test_accuracy_gate_low_pwin(monkeypatch):
     monkeypatch.setattr(config, 'MIN_P_WIN', 0.55)
     ok, reason = _engine()._accuracy_gate({'min_confidence': 0}, {'confidence': 0.9, 'p_win': 0.50})
