@@ -29,7 +29,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set, get) => ({
   settings: null,
-  theme: 'dark',
+  theme: 'light',
   // Mobile-first: drawer starts closed. On desktop the sidebar is always shown
   // via `lg:translate-x-0`, so this only controls the mobile drawer.
   sidebarOpen: false,
@@ -39,7 +39,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   fetchSettings: async () => {
     try {
       const settings = await settingsApi.get()
-      set({ settings, theme: settings.theme || 'dark' })
+      set({ settings, theme: settings.theme || 'light' })
     } catch (err: any) {
       console.error('Settings error:', err)
     }

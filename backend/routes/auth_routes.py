@@ -101,7 +101,7 @@ def register():
         'max_concurrent_trades': 5, # Default value since config might be missing it
         'overall_pnl_today': 0,
         'execution_mode': 'PAPER',
-        'theme': 'dark',
+        'theme': 'light',
         'telegram_configured': False
     })
     

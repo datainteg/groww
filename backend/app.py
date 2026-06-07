@@ -2,6 +2,15 @@
 AI Trading System - Main Application
 Flask backend with Groww API integration
 """
+import sys
+# Force UTF-8 stdout/stderr so emoji log lines don't crash on a cp1252 console
+# (Windows). Must run before any module that prints emoji at import.
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
 import json
 import os
 import time

@@ -8,7 +8,15 @@ Run ONLY ONE scheduler process. A Redis leader-lock guards against accidental
 double-start, but the intended deployment is a single dedicated process here while
 the web app runs with START_SCHEDULER_IN_APP unset/false.
 """
+import sys
 import time
+
+# Force UTF-8 stdout/stderr (Windows cp1252 consoles crash on emoji log lines).
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 from config import config
 from services import (

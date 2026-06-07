@@ -49,10 +49,10 @@
   .card {
     background-color: var(--card);
     border: 1px solid var(--border);
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     padding: 1.25rem;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    transition: background-color 0.2s ease, border-color 0.2s ease;
+    box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   }
   
   .dark .card {
@@ -74,10 +74,10 @@
   
   .input:focus {
     outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+    border-color: #00d09c;
+    box-shadow: 0 0 0 3px rgb(0 208 156 / 0.15);
   }
-  
+
   .input-field {
     background-color: var(--input-bg);
     border: 1px solid var(--border);
@@ -90,13 +90,13 @@
   
   .input-field:focus {
     outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+    border-color: #00d09c;
+    box-shadow: 0 0 0 3px rgb(0 208 156 / 0.15);
   }
-  
+
   /* Button styles */
   .btn-primary {
-    background: linear-gradient(to right, #2563eb, #3b82f6);
+    background: linear-gradient(to right, #00b386, #00d09c);
     color: #ffffff;
     padding: 0.625rem 1rem;
     border-radius: 0.5rem;
@@ -111,7 +111,7 @@
   }
   
   .btn-primary:hover {
-    box-shadow: 0 10px 25px rgb(59 130 246 / 0.25);
+    box-shadow: 0 10px 25px rgb(0 208 156 / 0.3);
     transform: translateY(-1px);
   }
   
@@ -138,7 +138,7 @@
   
   .btn-secondary:hover {
     background-color: var(--input-bg);
-    border-color: #3b82f6;
+    border-color: #00d09c;
   }
   
   .btn-danger {
@@ -231,7 +231,7 @@
    UTILITY CLASSES
 ========================= */
 .text-gradient {
-  background: linear-gradient(to right, #3b82f6, #06b6d4);
+  background: linear-gradient(to right, #00b386, #00d09c);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

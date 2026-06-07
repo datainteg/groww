@@ -249,20 +249,18 @@ def get_decision():
 @jwt_required()
 def get_candles(symbol):
     """
-    Get candles for chart.
-    If no data exists, return MOCK data for visualization,
-    BUT DO NOT SAVE IT TO DB.
+    Get REAL candles for the chart from the DB (synced from Groww).
+    No mock/synthetic data — if none exist, returns an empty set so the UI can
+    prompt a sync rather than render fabricated prices.
     """
     interval = request.args.get('interval', '5')
-    limit = int(request.args.get('limit', 100))
-    
+    try:
+        limit = max(1, min(int(request.args.get('limit', 100)), 1000))
+    except (TypeError, ValueError):
+        limit = 100
+
     candles = candle_service.get_candles(db, symbol, interval, limit)
-    
-    if not candles or len(candles) < 10:
-        print(f"⚠️ Serving MOCK data for {symbol} chart (Visual Only)")
-        candles = candle_service.generate_mock_candles(symbol, int(interval), limit)
-        # CRITICAL FIX: DO NOT CALL _save_to_db HERE
-    
+
     return jsonify({
         'symbol': symbol,
         'interval': interval,
