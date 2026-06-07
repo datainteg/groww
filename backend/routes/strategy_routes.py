@@ -275,8 +275,17 @@ def sync_candles(symbol):
     user_id = get_jwt_identity()
     interval = request.args.get('interval', '5')
     user = db.get_user_by_id(user_id)
-    access_token = user.get('groww_access_token') if user else None
-    
+
+    # The token is stored ENCRYPTED — decrypt before sending as Bearer.
+    from utils import encryption
+    raw = user.get('groww_access_token') if user else None
+    access_token = encryption.decrypt(raw) if raw else None
+    if not access_token:
+        return jsonify({'success': False,
+                        'error': 'No Groww token — connect your account on Profile first'}), 400
+
+    # Works off-hours too: candle_service._get_smart_window rewinds to the last
+    # trading session (e.g. Friday on a weekend), so this pulls the latest real data.
     result = candle_service.sync_candles(db, symbol, interval, access_token)
     return jsonify(result)
 
