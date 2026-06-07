@@ -514,13 +514,15 @@ export default function Dashboard() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-50 dark:bg-dark-800/50 text-gray-500 dark:text-dark-400 font-bold text-xs uppercase"><tr><th className="p-4">Symbol</th><th className="p-4">Side</th><th className="p-4">Entry</th><th className="p-4">LTP</th><th className="p-4 text-right">P&L</th></tr></thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-dark-700">
-                    {activeTrades.slice(0, 5).map(trade => { 
+                    {activeTrades.slice(0, 5).map(trade => {
                       const currentPrice = trade.ltp || trade.entry_price || 0
-                      const pnl = (currentPrice - trade.entry_price) * trade.quantity * (trade.side === 'BUY' ? 1 : -1)
+                      // `side` may be absent (backend sends transaction_type); default BUY.
+                      const side = trade.side || trade.transaction_type || 'BUY'
+                      const pnl = (currentPrice - (trade.entry_price ?? 0)) * trade.quantity * (side === 'BUY' ? 1 : -1)
                       return (
                         <tr key={trade._id} className="hover:bg-gray-50 dark:hover:bg-dark-800/30 transition-colors">
                           <td className="p-4 font-mono font-medium text-gray-900 dark:text-white">{trade.trading_symbol}</td>
-                          <td className="p-4"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${trade.side === 'BUY' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400'}`}>{trade.side}</span></td>
+                          <td className="p-4"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${side === 'BUY' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400'}`}>{side}</span></td>
                           <td className="p-4 text-gray-500 dark:text-dark-300">{formatCurrency(trade.entry_price)}</td>
                           <td className="p-4 text-gray-900 dark:text-white font-bold">{formatCurrency(currentPrice)}</td>
                           <td className={`p-4 text-right font-bold ${getPnlClass(pnl)}`}>{formatCurrency(pnl)}</td>

@@ -401,10 +401,10 @@ export default function Trades() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-900 dark:text-white">{trade.quantity}</td>
-                        <td className="px-4 py-3 text-gray-500 dark:text-dark-300 font-mono">₹{trade.entry_price.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-gray-900 dark:text-white font-mono font-bold">₹{currentPrice.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-red-500 dark:text-red-400 font-mono">₹{trade.stop_loss.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-emerald-500 dark:text-emerald-400 font-mono">₹{trade.target.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-gray-500 dark:text-dark-300 font-mono">₹{(trade.entry_price ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-gray-900 dark:text-white font-mono font-bold">₹{(currentPrice ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-red-500 dark:text-red-400 font-mono">{trade.stop_loss != null ? `₹${trade.stop_loss.toFixed(2)}` : '—'}</td>
+                        <td className="px-4 py-3 text-emerald-500 dark:text-emerald-400 font-mono">{trade.target != null ? `₹${trade.target.toFixed(2)}` : '—'}</td>
                         <td className={`px-4 py-3 font-mono font-bold text-right ${getPnlClass(pnl)}`}>
                           {formatCurrency(pnl)}
                         </td>
