@@ -84,15 +84,22 @@ export default function Charts() {
   }, [symbol])
 
   // --- 2. Data Fetching ---
+  // Track the latest selected symbol so an in-flight request for a PREVIOUS
+  // symbol can't overwrite the chart after the user switches (race guard).
+  const latestSymbolRef = useRef(symbol)
+  useEffect(() => { latestSymbolRef.current = symbol }, [symbol])
+
   const loadData = useCallback(async (isFreshLoad = false) => {
     if (isFreshLoad) {
       setLoading(true)
       shouldFitContent.current = true
     }
-    
+
     try {
       // Fetch Candles
       const res = await strategyApi.getCandles(symbol, interval, 300)
+      // Discard a stale response if the symbol changed while this was in flight.
+      if (symbol !== latestSymbolRef.current) return
       const data = (res.candles || []).sort((a, b) => a.timestamp - b.timestamp)
       const uniqueData = data.filter((v, i, a) => i === 0 || v.timestamp !== a[i - 1].timestamp)
       setCandles(uniqueData)

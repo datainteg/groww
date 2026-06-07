@@ -294,7 +294,12 @@ export default function Signals() {
                       <div className="bg-white/50 dark:bg-black/20 p-2 rounded text-center">
                         <p className="text-[10px] text-gray-500">Risk/Reward</p>
                         <p className="text-xs font-mono text-emerald-500 dark:text-emerald-300">
-                          1 : {((Math.abs(pat.target - pat.entry)) / (Math.abs(pat.entry - pat.stop_loss))).toFixed(1)}
+                          {(() => {
+                            const risk = Math.abs(pat.entry - pat.stop_loss)
+                            return risk > 0
+                              ? `1 : ${(Math.abs(pat.target - pat.entry) / risk).toFixed(1)}`
+                              : 'N/A'
+                          })()}
                         </p>
                       </div>
                     </div>
