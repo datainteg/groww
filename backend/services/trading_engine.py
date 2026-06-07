@@ -447,6 +447,7 @@ class TradingEngine:
                                 trading_symbol: str, quantity: int, product: str,
                                 source: str = "AUTO") -> Dict:
         """Broker placement + trade record. Runs only while holding the trade lock."""
+        import uuid
         broker = self._get_broker()
 
         # FIX 4: Unified order placement for both PAPER and LIVE
@@ -475,10 +476,37 @@ class TradingEngine:
             if order_id:
                 execution_price = self._get_order_fill_price(order_id)
         
-        # If still no price, get current LTP as estimate
+        # LIVE: NEVER invent a fill from LTP. If the fill price is still unknown,
+        # mark the trade PENDING_RECONCILE instead of opening at a fake price.
         if execution_price == 0:
+            if self.execution_mode == 'LIVE':
+                self._set_reconcile_block(True)
+                db.create_trade({
+                    'user_id': self.user_id,
+                    'strategy_id': str(strategy['_id']),
+                    'strategy_name': strategy.get('name', 'Unknown'),
+                    'trading_symbol': trading_symbol, 'symbol': trading_symbol,
+                    'option_type': option_type, 'transaction_type': 'BUY',
+                    'quantity': quantity, 'entry_price': 0,
+                    'order_id': result.get('order_id', ''),
+                    'order_reference_id': uuid.uuid4().hex,
+                    'status': 'PENDING_RECONCILE',
+                    'order_status': 'UNKNOWN_RECONCILE_REQUIRED',
+                    'execution_mode': self.execution_mode,
+                    'entry_time': get_ist_now(), 'product': product,
+                })
+                try:
+                    telegram_alert.send_kill_switch_alert(
+                        f"LIVE order {result.get('order_id')} fill price unconfirmed "
+                        f"for {trading_symbol} — marked PENDING_RECONCILE.")
+                except Exception:
+                    pass
+                return {'success': False, 'pending': True, 'source': source,
+                        'reason': 'LIVE fill price unconfirmed — trade marked for reconciliation',
+                        'order_id': result.get('order_id')}
+            # PAPER: LTP estimate is the simulated fill.
             execution_price = self._get_option_ltp(trading_symbol)
-        
+
         # 3. Record Trade
         trade_data = {
             'user_id': self.user_id,
@@ -491,6 +519,8 @@ class TradingEngine:
             'quantity': quantity,
             'entry_price': execution_price,
             'order_id': result.get('order_id', ''),
+            'order_reference_id': uuid.uuid4().hex,
+            'order_status': 'COMPLETE',
             'stop_loss': 0,
             'target': 0,
             'current_sl': 0,
