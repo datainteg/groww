@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Shield, Zap, AlertTriangle, RefreshCw, Power, Save, MessageSquare, CheckCircle } from 'lucide-react'
-import { useUIStore, useTradeStore, useStrategyStore } from '../store'
+import { Shield, Zap, AlertTriangle, RefreshCw, Power, Save, MessageSquare, CheckCircle, Cpu } from 'lucide-react'
+import { useUIStore, useTradeStore, useStrategyStore, useHealthStore } from '../store'
 import { settingsApi } from '../api/settings.api'
+import { ConfirmDialog, Badge } from '../components/ui'
 
 export default function Settings() {
   const { settings, fetchSettings, updateSettings, toggleKillSwitch, setExecutionMode, addToast } = useUIStore()
   const { resetPaperAccount } = useTradeStore()
   const { stopAllStrategies } = useStrategyStore()
-  
+  const { health, fetchHealth } = useHealthStore()
+
   const [saving, setSaving] = useState(false)
   const [testingTelegram, setTestingTelegram] = useState(false)
+  const [liveConfirm, setLiveConfirm] = useState(false)
   const [form, setForm] = useState({
     overall_max_profit: 0,
-    overall_max_loss: 0
+    overall_max_loss: 0,
+    max_concurrent_trades: 3,
   })
   
   // Telegram Form State
@@ -24,6 +28,7 @@ export default function Settings() {
   // Load Settings on Mount
   useEffect(() => {
     fetchSettings()
+    fetchHealth()
   }, [])
 
   // Sync Form with Settings
@@ -31,7 +36,8 @@ export default function Settings() {
     if (settings) {
       setForm({
         overall_max_profit: settings.overall_max_profit || 0,
-        overall_max_loss: settings.overall_max_loss || 0
+        overall_max_loss: settings.overall_max_loss || 0,
+        max_concurrent_trades: (settings as any).max_concurrent_trades || 3,
       })
       // Pre-fill telegram fields if they exist (masked for security usually, but here simple)
       setTelegramForm({
@@ -41,20 +47,22 @@ export default function Settings() {
     }
   }, [settings])
 
-  const handleModeChange = async (mode: 'PAPER' | 'LIVE') => {
-    if (mode === settings?.execution_mode) return
-    
-    if (mode === 'LIVE') {
-      const confirmLive = window.confirm('⚠️ WARNING: You are switching to LIVE trading mode.\n\nReal money will be used for all trades. Are you sure?')
-      if (!confirmLive) return
-    }
-    
+  const applyMode = async (mode: 'PAPER' | 'LIVE') => {
     try {
       await setExecutionMode(mode)
       addToast('success', `Switched to ${mode} mode`)
     } catch (err: any) {
       addToast('error', 'Failed to change mode')
     }
+  }
+
+  const handleModeChange = (mode: 'PAPER' | 'LIVE') => {
+    if (mode === settings?.execution_mode) return
+    if (mode === 'LIVE') {
+      setLiveConfirm(true)  // typed confirmation dialog
+      return
+    }
+    applyMode('PAPER')
   }
 
   const handleKillSwitch = async () => {
@@ -77,8 +85,9 @@ export default function Settings() {
     try {
       await updateSettings({
         overall_max_profit: Number(form.overall_max_profit),
-        overall_max_loss: Number(form.overall_max_loss)
-      })
+        overall_max_loss: Number(form.overall_max_loss),
+        max_concurrent_trades: Number(form.max_concurrent_trades),
+      } as any)
       addToast('success', 'Risk limits updated')
     } catch (err: any) {
       addToast('error', 'Failed to update settings')
@@ -234,7 +243,7 @@ export default function Settings() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label className="text-xs font-bold text-gray-500 dark:text-dark-400 uppercase mb-2 block">Max Daily Profit (₹)</label>
             <div className="relative">
@@ -262,7 +271,40 @@ export default function Settings() {
             </div>
             <p className="text-[10px] text-gray-400 dark:text-dark-500 mt-1">Trading stops if daily loss exceeds this amount.</p>
           </div>
+
+          <div>
+            <label className="text-xs font-bold text-gray-500 dark:text-dark-400 uppercase mb-2 block">Max Concurrent Trades</label>
+            <input
+              type="number"
+              min={1}
+              value={form.max_concurrent_trades}
+              onChange={(e) => setForm({ ...form, max_concurrent_trades: Number(e.target.value) })}
+              className="input-field w-full font-mono bg-white dark:bg-dark-900"
+            />
+            <p className="text-[10px] text-gray-400 dark:text-dark-500 mt-1">Max simultaneously-open positions.</p>
+          </div>
         </div>
+      </div>
+
+      {/* --- Automation status (server-controlled for safety) --- */}
+      <div className="card p-6 border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Cpu className="w-6 h-6 text-cyan-500" />
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Auto-Trading</h2>
+              <p className="text-xs text-gray-500 dark:text-dark-400">Whether the scheduler may place LIVE entries automatically.</p>
+            </div>
+          </div>
+          <Badge variant={health?.auto_trading_enabled ? 'warning' : 'success'}>
+            {health?.auto_trading_enabled ? 'Enabled' : 'Disabled (safe)'}
+          </Badge>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-dark-400 mt-3">
+          Auto-trading is controlled server-side (<span className="font-mono">AUTO_TRADING_ENABLED</span>) and is
+          <b> off by default</b>. Even in LIVE mode, no orders are placed automatically until it is enabled on the
+          server, the token is fresh, reconciliation is clean, and the kill switch is off.
+        </p>
       </div>
 
       {/* --- Telegram Configuration --- */}
@@ -357,6 +399,17 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* LIVE mode requires typed confirmation */}
+      <ConfirmDialog
+        open={liveConfirm}
+        title="Switch to LIVE trading?"
+        message={<span>Real money will be used for all trades. Only go live after a strategy shows positive out-of-sample backtest expectancy.</span>}
+        confirmLabel="Go LIVE"
+        danger
+        requireText="GO LIVE"
+        onConfirm={() => applyMode('LIVE')}
+        onClose={() => setLiveConfirm(false)}
+      />
     </div>
   )
 }
