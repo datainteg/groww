@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore, useUIStore } from './store'
 import Layout from './components/layout/Layout'
@@ -6,13 +6,25 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Strategy from './pages/Strategy'
 import Trades from './pages/Trades'
-import Charts from './pages/Charts'
 import Signals from './pages/Signals'
-import Backtest from './pages/Backtest'
 import SafetyCenter from './pages/SafetyCenter'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
+
+// Heavy chart pages are code-split (pull in lightweight-charts on demand).
+const Charts = lazy(() => import('./pages/Charts'))
+const Backtest = lazy(() => import('./pages/Backtest'))
+
+// Fallback while a lazy (code-split) page loads.
+function PageFallback() {
+  return (
+    <div className="space-y-3">
+      <div className="h-8 w-48 rounded-lg bg-gray-100 dark:bg-dark-800 animate-pulse" />
+      <div className="h-64 rounded-xl bg-gray-100 dark:bg-dark-800 animate-pulse" />
+    </div>
+  )
+}
 
 // Protected Route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -67,9 +79,9 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/strategy" element={<Strategy />} />
           <Route path="/trades" element={<Trades />} />
-          <Route path="/charts" element={<Charts />} />
+          <Route path="/charts" element={<Suspense fallback={<PageFallback />}><Charts /></Suspense>} />
           <Route path="/signals" element={<Signals />} />
-          <Route path="/backtest" element={<Backtest />} />
+          <Route path="/backtest" element={<Suspense fallback={<PageFallback />}><Backtest /></Suspense>} />
           <Route path="/safety" element={<SafetyCenter />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/profile" element={<Profile />} />
