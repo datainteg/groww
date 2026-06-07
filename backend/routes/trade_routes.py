@@ -785,6 +785,33 @@ def quick_trade():
             return jsonify({'error': str(e)}), 500
 
 
+@trade_bp.route('/reconciliation', methods=['GET'])
+@jwt_required()
+def reconciliation_status():
+    """View broker<->DB reconciliation health (blocked flag + latest mismatch)."""
+    user_id = get_jwt_identity()
+    blocked = False
+    try:
+        from database import redis_client
+        c = getattr(redis_client, 'client', None)
+        if c and c.get(f'reconcile_blocked:{user_id}'):
+            blocked = True
+    except Exception:
+        pass
+    latest = None
+    try:
+        doc = db.db['reconciliation_mismatch'].find_one(
+            {'user_id': user_id}, sort=[('created_at', -1)])
+        if doc:
+            doc['_id'] = str(doc['_id'])
+            ca = doc.get('created_at')
+            doc['created_at'] = ca.isoformat() if hasattr(ca, 'isoformat') else ca
+            latest = doc
+    except Exception:
+        pass
+    return jsonify({'reconcile_blocked': blocked, 'latest_mismatch': latest})
+
+
 @trade_bp.route('/exit-all', methods=['POST'])
 @jwt_required()
 def exit_all_trades():

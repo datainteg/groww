@@ -624,10 +624,96 @@ class TradingEngine:
         
         return {'success': True, 'pnl': pnl, 'exit_price': final_exit_price}
 
+    def _set_reconcile_block(self, blocked: bool):
+        """Set/clear the per-user reconcile-block flag the scheduler reads to halt
+        new auto-entries on a broker<->DB mismatch."""
+        client = getattr(redis_client, 'client', None)
+        if not client:
+            return
+        key = f'reconcile_blocked:{self.user_id}'
+        try:
+            client.set(key, '1') if blocked else client.delete(key)
+        except Exception:
+            pass
+
     def reconcile_positions(self, broker_positions: List[Dict]):
-        """Syncs DB with Broker."""
-        # TODO: Implement full reconciliation logic
-        pass
+        """Compare broker positions vs DB open trades. On ANY mismatch (LIVE),
+        trip the kill switch + reconcile-block flag and alert — never auto-correct
+        silently. Returns a structured result for the status route."""
+        try:
+            db_open = db.get_active_trades(self.user_id)
+        except Exception as e:
+            print(f"[reconcile] DB read error: {e}")
+            return {'success': False, 'error': str(e)}
+
+        def _norm(s):
+            return str(s or '').upper().strip()
+
+        def _pos_qty(p):
+            for k in ('net_quantity', 'netQty', 'net_qty', 'quantity'):
+                if p.get(k) is not None:
+                    try:
+                        return int(float(p[k]))
+                    except (TypeError, ValueError):
+                        pass
+            return 0
+
+        # Broker side (net per symbol; drop flat positions).
+        broker_map: Dict[str, int] = {}
+        for p in (broker_positions or []):
+            sym = _norm(p.get('trading_symbol') or p.get('symbol') or p.get('tradingSymbol'))
+            if sym:
+                broker_map[sym] = broker_map.get(sym, 0) + _pos_qty(p)
+        broker_open = {s: q for s, q in broker_map.items() if q != 0}
+
+        # DB side (open trades net per symbol).
+        db_map: Dict[str, int] = {}
+        for t in db_open:
+            sym = _norm(t.get('trading_symbol') or t.get('symbol'))
+            if sym:
+                db_map[sym] = db_map.get(sym, 0) + int(t.get('quantity', 0) or 0)
+
+        mismatches = []
+        for sym, dq in db_map.items():
+            bq = broker_open.get(sym, 0)
+            if bq == 0:
+                mismatches.append({'type': 'db_open_broker_flat', 'symbol': sym, 'db_qty': dq, 'broker_qty': 0})
+            elif bq != dq:
+                mismatches.append({'type': 'qty_mismatch', 'symbol': sym, 'db_qty': dq, 'broker_qty': bq})
+        for sym, bq in broker_open.items():
+            if sym not in db_map:
+                mismatches.append({'type': 'broker_position_no_db', 'symbol': sym, 'db_qty': 0, 'broker_qty': bq})
+
+        if not mismatches:
+            self._set_reconcile_block(False)  # healthy -> clear any prior block
+            return {'success': True, 'healthy': True, 'mismatches': []}
+
+        # MISMATCH: trip safety. Do NOT auto-correct.
+        print(f"[reconcile] MISMATCH user={self.user_id}: {mismatches}")
+        if self.execution_mode == 'LIVE':
+            try:
+                db.upsert_settings(self.user_id, {'kill_switch': True})
+            except Exception as e:
+                print(f"[reconcile] kill-switch set failed: {e}")
+            self._set_reconcile_block(True)
+
+        try:
+            db.db['reconciliation_mismatch'].insert_one({
+                'user_id': self.user_id,
+                'mismatches': mismatches,
+                'execution_mode': self.execution_mode,
+                'created_at': get_ist_now(),
+            })
+        except Exception as e:
+            print(f"[reconcile] mismatch log failed: {e}")
+
+        try:
+            telegram_alert.send_kill_switch_alert(
+                f"Reconciliation mismatch ({len(mismatches)}) for {self.user_id}: {mismatches}")
+        except Exception:
+            pass
+
+        return {'success': True, 'healthy': False, 'mismatches': mismatches}
 
     # =========================================================
     # 4. STATUS METHOD
