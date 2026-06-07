@@ -4,6 +4,8 @@ Handles user registration, login, and profile management
 """
 import re
 import time
+import pytz
+from datetime import timedelta
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
     create_access_token, jwt_required, get_jwt_identity, get_jwt
@@ -18,7 +20,29 @@ from utils import encryption
 from utils.time_utils import (
     get_token_expiry_time as _groww_expiry_time,
     is_token_expired as _is_token_expired,
+    get_ist_now,
+    IST,
 )
+
+
+def _groww_token_fresh(token_generated_at) -> bool:
+    """A Groww token is valid until the next 6 AM IST after it was generated.
+    Equivalently: fresh iff it was generated after the most recent 6 AM IST.
+    Uses token_generated_at (always stored on a successful generate) so freshness
+    is reliable regardless of Groww's expiry-field format."""
+    if not token_generated_at:
+        return False
+    try:
+        gen = token_generated_at
+        if getattr(gen, 'tzinfo', None) is None:
+            gen = pytz.utc.localize(gen)  # stored as naive UTC (datetime.utcnow)
+        gen_ist = gen.astimezone(IST)
+        now_ist = get_ist_now()
+        six = now_ist.replace(hour=6, minute=0, second=0, microsecond=0)
+        last_6am = six if now_ist >= six else six - timedelta(days=1)
+        return gen_ist >= last_6am
+    except Exception:
+        return False
 # Import GrowwClient to verify credentials immediately
 from services.groww_client import GrowwClient
 
@@ -191,18 +215,13 @@ def get_current_user():
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    # Groww token freshness (tokens expire ~6 AM IST daily). The UI uses this to
-    # prompt a re-connect and to flag that it is showing older/stale data.
+    # Groww token freshness — tokens expire ~6 AM IST daily. Track via
+    # token_generated_at (set only on a SUCCESSFUL generate), so a credential
+    # update that didn't actually mint a new token still reads as stale.
     broker = user.get('broker_connected', False)
-    expiry = user.get('groww_token_expiry')
     has_token = bool(user.get('groww_access_token'))
-    token_valid = False
-    if broker and has_token and expiry:
-        try:
-            exp_dt = datetime.fromisoformat(expiry) if isinstance(expiry, str) else expiry
-            token_valid = not _is_token_expired(exp_dt)
-        except Exception:
-            token_valid = False
+    gen = user.get('token_generated_at')
+    token_valid = _groww_token_fresh(gen) if (broker and has_token) else False
     needs_groww_refresh = bool(broker) and not token_valid
 
     return jsonify({
@@ -211,10 +230,32 @@ def get_current_user():
         'broker_connected': broker,
         'execution_mode': user.get('execution_mode', 'PAPER'),
         'created_at': user.get('created_at').isoformat() if user.get('created_at') else None,
-        'token_expiry': expiry,
+        'token_generated_at': gen.isoformat() if hasattr(gen, 'isoformat') else gen,
+        'token_expiry': user.get('groww_token_expiry'),
         'token_valid': token_valid,
         'needs_groww_refresh': needs_groww_refresh,
     })
+
+
+@auth_bp.route('/groww-status', methods=['GET'])
+@jwt_required()
+def groww_status():
+    """Live truth: does the stored Groww token actually work right now?
+    Makes one lightweight authenticated call so the UI can verify after a refresh."""
+    user_id = get_jwt_identity()
+    try:
+        from services.groww_client import get_groww_client
+        client = get_groww_client(user_id)
+        if not client or not client.access_token:
+            return jsonify({'connected': False, 'working': False,
+                            'reason': 'No Groww token — connect on Profile'}), 200
+        result = client.get_margins()
+        if result.get('success'):
+            return jsonify({'connected': True, 'working': True, 'reason': None}), 200
+        return jsonify({'connected': True, 'working': False,
+                        'reason': result.get('error') or 'Token expired — regenerate'}), 200
+    except Exception as e:
+        return jsonify({'connected': False, 'working': False, 'reason': str(e)}), 200
 
 
 @auth_bp.route('/profile', methods=['GET'])
