@@ -23,11 +23,14 @@ backtester) is responsible for putting cost/slippage-adjusted figures into
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 import numpy as np
 
 __all__ = ["compute_metrics"]
+
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # --------------------------------------------------------------------------- #
@@ -133,6 +136,148 @@ def _bucket_stats(net: np.ndarray) -> Dict[str, float]:
     return {"count": count, "win_rate": win_rate, "expectancy": expectancy}
 
 
+def _ts_to_dt(ts: Any):
+    """Coerce a candle timestamp (epoch int/float or ISO string) to an IST
+    datetime, or None."""
+    if ts is None:
+        return None
+    try:
+        if isinstance(ts, (int, float)):
+            return datetime.fromtimestamp(float(ts), tz=timezone.utc).astimezone(_IST)
+        dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_IST)
+    except Exception:
+        return None
+
+
+def _sortino(net: np.ndarray) -> float:
+    """Per-trade Sortino-style ratio: mean / downside-deviation."""
+    if net.size == 0:
+        return 0.0
+    downside = net[net < 0.0]
+    dd = float(np.std(downside)) if downside.size else 0.0
+    if dd <= 0.0 or not np.isfinite(dd):
+        return 0.0
+    return float(np.mean(net)) / dd
+
+
+def _consecutive(net: np.ndarray):
+    """(max_consecutive_wins, max_consecutive_losses)."""
+    mw = ml = cw = cl = 0
+    for v in net:
+        if v > 0:
+            cw += 1; cl = 0; mw = max(mw, cw)
+        elif v < 0:
+            cl += 1; cw = 0; ml = max(ml, cl)
+        else:
+            cw = cl = 0
+    return mw, ml
+
+
+def _frac_bucket(value: Any) -> str:
+    """Bucket a 0-1 (or 0-100) score into labeled bands; 'unknown' if non-numeric."""
+    try:
+        c = float(value)
+    except (TypeError, ValueError):
+        return 'unknown'
+    if c != c:
+        return 'unknown'
+    if c > 1.0:
+        c /= 100.0
+    if c < 0.5:
+        return '0.0-0.5'
+    if c < 0.6:
+        return '0.5-0.6'
+    if c < 0.7:
+        return '0.6-0.7'
+    if c < 0.8:
+        return '0.7-0.8'
+    return '0.8-1.0'
+
+
+def _extended_metrics(trades: List[Dict[str, Any]], net: np.ndarray) -> Dict[str, Any]:
+    """Additional metrics, equity/drawdown/daily curves, and time/regime/score
+    breakdowns. Safe for an empty book (returns zeros + empty collections)."""
+    n = int(net.size)
+    wins = net[net > 0.0]
+    losses = net[net < 0.0]
+    gross_profit = float(np.sum(wins)) if wins.size else 0.0
+    gross_loss = float(-np.sum(losses)) if losses.size else 0.0
+    avg_win = float(np.mean(wins)) if wins.size else 0.0
+    avg_loss = float(np.mean(losses)) if losses.size else 0.0
+    payoff = (avg_win / abs(avg_loss)) if avg_loss != 0 else (float('inf') if avg_win > 0 else 0.0)
+
+    mdd = _max_drawdown(net)
+    equity = np.cumsum(net) if n else np.asarray([], dtype=np.float64)
+    total_net = float(np.sum(net)) if n else 0.0
+    recovery = (total_net / mdd) if mdd > 0 else (float('inf') if total_net > 0 else 0.0)
+    peak = float(np.max(equity)) if equity.size else 0.0
+    mdd_pct = (mdd / peak * 100.0) if peak > 0 else 0.0
+    mw, ml = _consecutive(net)
+
+    holds = [t['exit_bar'] - t['entry_bar'] for t in trades
+             if isinstance(t.get('exit_bar'), (int, float)) and isinstance(t.get('entry_bar'), (int, float))]
+    avg_hold = float(np.mean(holds)) if holds else 0.0
+
+    equity_curve: List[Dict[str, Any]] = []
+    dd_curve: List[Dict[str, Any]] = []
+    daily: Dict[str, float] = {}
+    tod: Dict[int, List[float]] = {}
+    wd: Dict[str, List[float]] = {}
+    confb: Dict[str, List[float]] = {}
+    pwinb: Dict[str, List[float]] = {}
+    run_peak = 0.0
+    for i, (t, v) in enumerate(zip(trades, net)):
+        cum = float(equity[i])
+        run_peak = max(run_peak, cum)
+        dt = _ts_to_dt(t.get('exit_time') or t.get('entry_time'))
+        tlabel = dt.isoformat() if dt else None
+        equity_curve.append({'i': i, 'equity': round(cum, 2), 'time': tlabel})
+        dd_curve.append({'i': i, 'drawdown': round(run_peak - cum, 2), 'time': tlabel})
+        if dt:
+            day = dt.strftime('%Y-%m-%d')
+            daily[day] = daily.get(day, 0.0) + float(v)
+            tod.setdefault(dt.hour, []).append(float(v))
+            wd.setdefault(dt.strftime('%a'), []).append(float(v))
+        confb.setdefault(_frac_bucket(t.get('confidence')), []).append(float(v))
+        pw = (t.get('signal_meta') or {}).get('p_win', t.get('p_win'))
+        pwinb.setdefault(_frac_bucket(pw) if pw is not None else 'none', []).append(float(v))
+
+    daily_pnl = [{'date': d, 'net': round(p, 2)} for d, p in sorted(daily.items())]
+    best_day = float(max(daily.values())) if daily else 0.0
+    worst_day = float(min(daily.values())) if daily else 0.0
+    n_days = len(daily)
+
+    def _b(d):
+        return {k: _bucket_stats(np.asarray(v, dtype=np.float64)) for k, v in d.items()}
+
+    return {
+        'loss_rate': float(losses.size) / n if n else 0.0,
+        'gross_profit': gross_profit,
+        'gross_loss': gross_loss,
+        'payoff_ratio': payoff,
+        'sortino': _sortino(net),
+        'recovery_factor': recovery,
+        'max_drawdown_pct': mdd_pct,
+        'avg_holding_bars': avg_hold,
+        'trades_per_day': (n / n_days) if n_days else 0.0,
+        'best_day': best_day,
+        'worst_day': worst_day,
+        'trading_days': n_days,
+        'max_consecutive_wins': mw,
+        'max_consecutive_losses': ml,
+        'equity_curve': equity_curve,
+        'drawdown_curve': dd_curve,
+        'daily_pnl': daily_pnl,
+        'by_time_of_day': {str(k): _bucket_stats(np.asarray(v, dtype=np.float64)) for k, v in sorted(tod.items())},
+        'by_weekday': _b(wd),
+        'by_confidence_bucket': _b(confb),
+        'by_p_win_bucket': _b(pwinb),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Public API                                                                   #
 # --------------------------------------------------------------------------- #
@@ -182,7 +327,7 @@ def compute_metrics(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     # Empty book: return a fully-zeroed, type-stable summary.
     if count == 0:
-        return {
+        base = {
             "count": 0,
             "total_net": 0.0,
             "win_rate": 0.0,
@@ -194,6 +339,8 @@ def compute_metrics(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
             "sharpe": 0.0,
             "by_regime": {},
         }
+        base.update(_extended_metrics([], np.zeros(0, dtype=np.float64)))
+        return base
 
     net = _extract_net(trades)
 
@@ -232,7 +379,7 @@ def compute_metrics(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
         for label, values in regime_nets.items()
     }
 
-    return {
+    result = {
         "count": count,
         "total_net": total_net,
         "win_rate": win_rate,
@@ -244,3 +391,5 @@ def compute_metrics(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
         "sharpe": sharpe,
         "by_regime": by_regime,
     }
+    result.update(_extended_metrics(trades, net))
+    return result

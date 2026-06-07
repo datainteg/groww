@@ -113,14 +113,16 @@ def create_app():
         return jsonify({'error': 'Token revoked'}), 401
     
     # Import and register blueprints
-    from routes import auth_bp, market_bp, strategy_bp, trade_bp, settings_bp, instruments_bp
-    
+    from routes import (auth_bp, market_bp, strategy_bp, trade_bp, settings_bp,
+                        instruments_bp, backtest_bp)
+
     app.register_blueprint(auth_bp)
     app.register_blueprint(market_bp)
     app.register_blueprint(strategy_bp)
     app.register_blueprint(trade_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(instruments_bp)
+    app.register_blueprint(backtest_bp)
     
     # Optionally start the background scheduler inside the web process.
     # Recommended production topology is a DEDICATED process (see run_scheduler.py),

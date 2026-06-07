@@ -37,6 +37,12 @@ class MongoDB:
         self.trade_journal = self.db['trade_journal']
         self.daily_summary = self.db['daily_summary']
         self.signal_log = self.db['signal_log']  # decision snapshots for calibration
+        # Backtesting Machine collections.
+        self.backtest_runs = self.db['backtest_runs']
+        self.backtest_trades = self.db['backtest_trades']
+        self.backtest_reports = self.db['backtest_reports']
+        self.backtest_datasets = self.db['backtest_datasets']
+        self.backtest_presets = self.db['backtest_presets']
 
         self._create_indexes()
     
@@ -71,6 +77,13 @@ class MongoDB:
             # Signal log (calibration dataset)
             self.signal_log.create_index([('created_at', DESCENDING)])
             self.signal_log.create_index([('strategy_id', ASCENDING), ('created_at', DESCENDING)])
+
+            # Backtesting Machine
+            self.backtest_runs.create_index([('user_id', ASCENDING), ('started_at', DESCENDING)])
+            self.backtest_runs.create_index('run_id', unique=True)
+            self.backtest_trades.create_index([('run_id', ASCENDING), ('entry_bar', ASCENDING)])
+            self.backtest_reports.create_index('run_id', unique=True)
+            self.backtest_presets.create_index([('user_id', ASCENDING)])
 
             # Candles - Compound index for fast retrieval
             self.candles.create_index([('symbol', ASCENDING), ('interval', ASCENDING)])
@@ -413,6 +426,59 @@ class MongoDB:
         signals = list(self.signals.find(query).sort('created_at', DESCENDING).limit(limit))
         for s in signals: s['_id'] = str(s['_id'])
         return signals
+
+    # ==================== BACKTEST OPERATIONS ====================
+    def create_backtest_run(self, run_doc: Dict) -> str:
+        run_doc.setdefault('created_at', datetime.utcnow())
+        self.backtest_runs.insert_one(run_doc)
+        return run_doc['run_id']
+
+    def update_backtest_run(self, run_id: str, updates: Dict) -> bool:
+        updates['updated_at'] = datetime.utcnow()
+        r = self.backtest_runs.update_one({'run_id': run_id}, {'$set': updates})
+        return r.modified_count > 0
+
+    def get_backtest_run(self, run_id: str, user_id: str = None) -> Optional[Dict]:
+        q = {'run_id': run_id}
+        if user_id:
+            q['user_id'] = user_id
+        doc = self.backtest_runs.find_one(q, {'_id': 0})
+        return doc
+
+    def list_backtest_runs(self, user_id: str, limit: int = 50) -> List[Dict]:
+        return list(self.backtest_runs.find(
+            {'user_id': user_id}, {'_id': 0}
+        ).sort('started_at', DESCENDING).limit(limit))
+
+    def save_backtest_trades(self, run_id: str, trades: List[Dict]) -> int:
+        if not trades:
+            return 0
+        self.backtest_trades.delete_many({'run_id': run_id})
+        docs = []
+        for i, t in enumerate(trades):
+            d = dict(t)
+            d['run_id'] = run_id
+            d.setdefault('entry_bar', i)
+            docs.append(d)
+        self.backtest_trades.insert_many(docs)
+        return len(docs)
+
+    def get_backtest_trades(self, run_id: str, skip: int = 0, limit: int = 100) -> List[Dict]:
+        return list(self.backtest_trades.find(
+            {'run_id': run_id}, {'_id': 0}
+        ).sort('entry_bar', ASCENDING).skip(skip).limit(limit))
+
+    def count_backtest_trades(self, run_id: str) -> int:
+        return self.backtest_trades.count_documents({'run_id': run_id})
+
+    def save_backtest_report(self, run_id: str, report: Dict) -> bool:
+        report['run_id'] = run_id
+        report['saved_at'] = datetime.utcnow()
+        r = self.backtest_reports.update_one({'run_id': run_id}, {'$set': report}, upsert=True)
+        return r.acknowledged
+
+    def get_backtest_report(self, run_id: str) -> Optional[Dict]:
+        return self.backtest_reports.find_one({'run_id': run_id}, {'_id': 0})
 
 
 # Singleton instance
