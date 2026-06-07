@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ShieldCheck, Power, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useHealthStore, useUIStore, useAuthStore } from '../store'
-import { settingsApi } from '../api'
+import { settingsApi, healthApi } from '../api'
 import { Panel, Badge } from '../components/ui'
 
 type RowState = 'ok' | 'warn' | 'bad' | 'na'
@@ -29,11 +29,27 @@ const ago = (epoch?: number) => {
 
 export default function SafetyCenter() {
   const { health, reconciliation, fetchHealth, isLoading } = useHealthStore()
-  const { settings, fetchSettings } = useUIStore()
+  const { settings, fetchSettings, addToast } = useUIStore()
   const { user } = useAuthStore()
   const [busy, setBusy] = useState(false)
+  const [reconBusy, setReconBusy] = useState(false)
 
   useEffect(() => { fetchHealth() }, [])
+
+  const runReconciliation = async () => {
+    setReconBusy(true)
+    try {
+      const r = await healthApi.runReconciliation()
+      addToast(r?.healthy ? 'success' : 'error',
+        r?.healthy ? 'Reconciliation healthy — broker matches DB.'
+          : `Reconciliation found ${r?.mismatches?.length ?? 0} mismatch(es).`)
+      await fetchHealth()
+    } catch (e: any) {
+      addToast('error', e?.response?.data?.error || 'Reconciliation failed')
+    } finally {
+      setReconBusy(false)
+    }
+  }
 
   const sched = health?.scheduler || {}
   const mode = (settings?.execution_mode || health?.execution_mode || 'PAPER').toUpperCase()
@@ -93,7 +109,16 @@ export default function SafetyCenter() {
         <Row label="Groww token" state={tokenOk === null ? 'na' : tokenOk ? 'ok' : 'bad'}
           value={tokenOk === null ? 'not connected' : tokenOk ? 'fresh' : <Link to="/profile" className="underline">reconnect</Link>} />
         <Row label="Reconciliation" state={reconcileOk ? 'ok' : 'bad'} value={reconcileOk ? 'matched' : 'mismatch'} />
+        <div className="flex justify-end py-1">
+          <button onClick={runReconciliation} disabled={reconBusy} className="btn-secondary text-xs">
+            {reconBusy ? 'Running…' : 'Run reconciliation now'}
+          </button>
+        </div>
         <Row label="Auto-entry gate" state={sched.blocked_reason ? 'warn' : 'ok'} value={sched.blocked_reason || 'clear'} />
+        <Row label="Redis" state={sched.redis_available === false ? 'bad' : 'ok'} value={sched.redis_available === false ? 'down' : 'up'} />
+        <Row label="Scheduler leader"
+          state={sched.leadership_blocked_reason ? 'bad' : (sched.leader_status ? 'ok' : 'warn')}
+          value={sched.leadership_blocked_reason || (sched.leader_status ? 'leader' : 'standby')} />
         <Row label="Scheduler heartbeat" state={schedulerOk ? 'ok' : 'bad'} value={ago(health?.scheduler_last_heartbeat)} />
         <Row label="Last candle sync" state="na" value={ago(sched.last_candle_sync)} />
         <Row label="Last reconciliation" state="na" value={ago(sched.last_reconciliation)} />

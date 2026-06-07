@@ -237,8 +237,11 @@ export default function Backtest() {
             <MetricCard label="Max DD %" value={`${num(m.max_drawdown_pct, 1)}%`} tone="neg" />
           </div>
 
-          {edgePass && (
-            <button onClick={() => addToast('info', 'Switch to PAPER mode in Settings and create a strategy with these params. Live is intentionally not enabled here.')}
+          {report?.verdict && <VerdictPanel verdict={report.verdict} matchedRatio={report.matched_ratio} mode={selectedRun.mode} />}
+          {report?.gating && <GatingPanel gating={report.gating} />}
+
+          {report?.verdict?.paper_ready && (
+            <button onClick={() => addToast('info', 'Switch to PAPER in Settings and create a strategy with these params. LIVE is intentionally not enabled here.')}
               className="btn-secondary text-sm">Use this strategy in Paper Mode</button>
           )}
 
@@ -391,6 +394,61 @@ function CompareTab({ runs }: { runs: any[] }) {
         </Panel>
       )}
     </div>
+  )
+}
+
+function VerdictPanel({ verdict, matchedRatio, mode }: { verdict: any; matchedRatio?: number; mode: string }) {
+  const g = verdict.grade
+  const gColor = ['A', 'B'].includes(g) ? 'text-emerald-500' : g === 'C' ? 'text-amber-500' : 'text-red-500'
+  return (
+    <Panel title="Verdict">
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span className={`text-3xl font-black ${gColor}`}>{g}</span>
+        <Badge tone={verdict.paper_ready ? 'pos' : 'neg'}>{verdict.paper_ready ? 'Paper-ready' : 'Not paper-ready'}</Badge>
+        <Badge tone={verdict.live_candidate ? 'warn' : 'neg'}>{verdict.live_candidate ? 'Live candidate' : 'Not live-ready'}</Badge>
+        {mode === 'OPTION_PREMIUM' && matchedRatio != null && (
+          <span className="text-xs text-gray-500 dark:text-dark-400">alignment {(matchedRatio * 100).toFixed(0)}%</span>
+        )}
+      </div>
+      {verdict.warnings?.length > 0 && (
+        <ul className="text-xs text-amber-600 dark:text-amber-400 list-disc pl-4 space-y-0.5">
+          {verdict.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+        </ul>
+      )}
+      {verdict.next_steps?.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-dark-400">Next steps</p>
+          <ul className="text-xs text-gray-600 dark:text-dark-300 list-disc pl-4 space-y-0.5">
+            {verdict.next_steps.map((s: string, i: number) => <li key={i}>{s}</li>)}
+          </ul>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function GatingPanel({ gating }: { gating: any }) {
+  const cells: [string, any][] = [
+    ['Signals', gating.signals_seen], ['Conf blocked', gating.confidence_blocked],
+    ['p_win blocked', gating.pwin_blocked], ['EV blocked', gating.ev_blocked],
+    ['Trades', gating.trades_taken],
+  ]
+  return (
+    <Panel title="Signal gating">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center">
+        {cells.map(([l, v]) => (
+          <div key={l} className="rounded-lg bg-gray-50 dark:bg-dark-800 p-2">
+            <p className="text-[10px] text-gray-400">{l}</p>
+            <p className="font-bold text-gray-900 dark:text-white">{v ?? 0}</p>
+          </div>
+        ))}
+      </div>
+      {gating.warnings?.length > 0 && (
+        <ul className="text-[11px] text-amber-600 dark:text-amber-400 list-disc pl-4 mt-2">
+          {gating.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+        </ul>
+      )}
+    </Panel>
   )
 }
 

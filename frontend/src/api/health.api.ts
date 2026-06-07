@@ -9,4 +9,8 @@ export const healthApi = {
     const res = await api.get('/trade/reconciliation')
     return res.data
   },
+  runReconciliation: async (): Promise<any> => {
+    const res = await api.post('/trade/reconciliation/run')
+    return res.data
+  },
 }
