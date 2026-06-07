@@ -5,8 +5,9 @@ import BottomNav from './BottomNav'
 import Header from './Header'
 import Toast from '../common/Toast'
 import GrowwTokenBanner from '../common/GrowwTokenBanner'
+import GlobalAlertBanner from '../common/GlobalAlertBanner'
 import ForceChangePassword from '../common/ForceChangePassword'
-import { useUIStore, useMarketStore, useStrategyStore, useTradeStore } from '../../store'
+import { useUIStore, useMarketStore, useStrategyStore, useTradeStore, useHealthStore } from '../../store'
 import { config } from '../../config'
 
 export default function Layout() {
@@ -14,6 +15,7 @@ export default function Layout() {
   const { fetchMarketStatus, fetchIndices } = useMarketStore()
   const { fetchStrategies, fetchEngineStatus, fetchDecision } = useStrategyStore()
   const { fetchDailyPnl, fetchActiveTrades, fetchPositions } = useTradeStore()
+  const { fetchHealth } = useHealthStore()
 
   const intervalsRef = useRef<NodeJS.Timeout[]>([])
 
@@ -27,6 +29,7 @@ export default function Layout() {
         fetchStrategies(),
         fetchEngineStatus(),
         fetchDailyPnl(),
+        fetchHealth(),
         fetchDecision('NIFTY', 5)
       ])
     }
@@ -42,6 +45,7 @@ export default function Layout() {
     const signalInterval = setInterval(() => {
       fetchDecision('NIFTY', 5)
       fetchEngineStatus()
+      fetchHealth()
     }, config.SIGNAL_POLL_INTERVAL || 10000)
 
     const tradeInterval = setInterval(() => {
@@ -84,7 +88,8 @@ export default function Layout() {
 
         {/* Page Content (bottom padding clears the mobile tab bar) */}
         <main className="p-4 sm:p-6 pb-24 lg:pb-6 min-h-[calc(100vh-4rem)]">
-          {/* Daily Groww-token refresh prompt + stale-data banner */}
+          {/* System-wide safety alerts + daily Groww-token refresh prompt */}
+          <GlobalAlertBanner />
           <GrowwTokenBanner />
           <Outlet />
         </main>

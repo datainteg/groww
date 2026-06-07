@@ -75,22 +75,8 @@ export const uiPlugin = plugin(function ({ addComponents, theme }) {
       cursor: 'pointer',
     },
 
-    '.btn-primary': {
-      background: 'linear-gradient(to right, #2563eb, #3b82f6)',
-      color: '#ffffff',
-      border: 'none',
-    },
-
-    '.btn-primary:hover': {
-      boxShadow: '0 10px 25px rgb(59 130 246 / 0.25)',
-      transform: 'translateY(-1px)',
-    },
-
-    '.btn-primary:disabled': {
-      opacity: '0.5',
-      cursor: 'not-allowed',
-      transform: 'none',
-    },
+    /* NOTE: .btn-primary is defined (Groww green) in globals.css — not here, to
+       avoid a duplicate blue definition overriding the brand color. */
 
     '.btn-ghost': {
       backgroundColor: '#f1f5f9',

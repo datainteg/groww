@@ -8,6 +8,7 @@ import {
   Zap,
   TrendingUp,
   FlaskConical,
+  ShieldCheck,
   X,
 } from 'lucide-react'
 
@@ -18,6 +19,7 @@ const navigation = [
   { name: 'Charts', href: '/charts', icon: LineChart },
   { name: 'AI Signals', href: '/signals', icon: Zap },
   { name: 'Backtest Lab', href: '/backtest', icon: FlaskConical },
+  { name: 'Safety Center', href: '/safety', icon: ShieldCheck },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
