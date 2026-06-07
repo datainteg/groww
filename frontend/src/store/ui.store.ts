@@ -30,7 +30,9 @@ interface UIState {
 export const useUIStore = create<UIState>((set, get) => ({
   settings: null,
   theme: 'dark',
-  sidebarOpen: true,
+  // Mobile-first: drawer starts closed. On desktop the sidebar is always shown
+  // via `lg:translate-x-0`, so this only controls the mobile drawer.
+  sidebarOpen: false,
   toasts: [],
   isLoading: false,
 

@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import BottomNav from './BottomNav'
 import Header from './Header'
 import Toast from '../common/Toast'
 import { useUIStore, useMarketStore, useStrategyStore, useTradeStore } from '../../store'
 import { config } from '../../config'
 
 export default function Layout() {
-  const { sidebarOpen, toggleSidebar, fetchSettings } = useUIStore()
+  const { sidebarOpen, toggleSidebar, setSidebarOpen, fetchSettings } = useUIStore()
   const { fetchMarketStatus, fetchIndices } = useMarketStore()
   const { fetchStrategies, fetchEngineStatus, fetchDecision } = useStrategyStore()
   const { fetchDailyPnl, fetchActiveTrades, fetchPositions } = useTradeStore()
@@ -59,23 +60,34 @@ export default function Layout() {
   }, [])
 
   return (
-    // FIX: Added 'bg-gray-50 dark:bg-dark-950' and 'text-gray-900 dark:text-white'
     <div className="min-h-screen bg-gray-50 dark:bg-dark-950 text-gray-900 dark:text-white transition-colors duration-200">
-      
-      {/* Sidebar */}
-      <Sidebar isOpen={sidebarOpen} />
 
-      {/* Main Content */}
-      <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        
+      {/* Sidebar: static on desktop, off-canvas drawer on mobile */}
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      {/* Mobile drawer backdrop */}
+      {sidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Main Content — left margin only on desktop where the sidebar is static */}
+      <div className="lg:ml-64">
+
         {/* Header */}
         <Header onToggleSidebar={toggleSidebar} />
 
-        {/* Page Content */}
-        <main className="p-6 min-h-[calc(100vh-4rem)]">
+        {/* Page Content (bottom padding clears the mobile tab bar) */}
+        <main className="p-4 sm:p-6 pb-24 lg:pb-6 min-h-[calc(100vh-4rem)]">
           <Outlet />
         </main>
       </div>
+
+      {/* Mobile bottom tab bar */}
+      <BottomNav />
 
       {/* Toast Notifications */}
       <Toast />

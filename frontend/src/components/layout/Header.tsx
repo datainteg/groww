@@ -36,13 +36,15 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
   return (
     // FIX: Theme-aware background and border
-    <header className="h-16 bg-white/80 dark:bg-dark-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-700 flex items-center justify-between px-6 sticky top-0 z-30 shadow-sm transition-colors duration-200">
-      
+    <header className="h-16 bg-white/80 dark:bg-dark-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-700 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 shadow-sm transition-colors duration-200">
+
       {/* Left Section */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
+        {/* Hamburger opens the drawer on mobile; desktop sidebar is always shown */}
         <button
           onClick={onToggleSidebar}
-          className="p-2 rounded-lg text-gray-500 dark:text-dark-400 hover:bg-gray-100 dark:hover:bg-dark-800 transition-colors"
+          className="lg:hidden p-2 rounded-lg text-gray-500 dark:text-dark-400 hover:bg-gray-100 dark:hover:bg-dark-800 transition-colors"
+          aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -79,8 +81,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       </div>
 
       {/* Right Section */}
-      <div className="flex items-center gap-4">
-        
+      <div className="flex items-center gap-2 sm:gap-4">
+
         {/* Mode Badge */}
         <div className={`px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border ${
           settings?.execution_mode === 'LIVE'
