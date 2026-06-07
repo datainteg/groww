@@ -1,9 +1,16 @@
+"""Standalone scratch helper to mint a Groww access token from the CLI.
+NOT used by the app — the live app stores/reads the per-user token in MongoDB
+(set via Profile -> update Groww credentials). Provide secrets via env, never
+hardcode them:  GROWW_API_KEY=... GROWW_API_SECRET=... python GrowwAPI.py
+"""
+import os
 from growwapi import GrowwAPI
-import pyotp
- 
-api_key = "eyJraWQiOiJaTUtjVXciLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjI1NTkxMDQ2OTIsImlhdCI6MTc3MDcwNDY5MiwibmJmIjoxNzcwNzA0NjkyLCJzdWIiOiJ7XCJ0b2tlblJlZklkXCI6XCIwNzUzMDQ0NC03OGE1LTQ5MjAtOTMyOS0xZjllNDYzYTRkNzhcIixcInZlbmRvckludGVncmF0aW9uS2V5XCI6XCJlMzFmZjIzYjA4NmI0MDZjODg3NGIyZjZkODQ5NTMxM1wiLFwidXNlckFjY291bnRJZFwiOlwiNWZiNzBmZmQtN2M0NS00OTM4LWE4NDUtNmM3MWFhNWI2MmZlXCIsXCJkZXZpY2VJZFwiOlwiZTIyN2NjMmUtOGQwZS01NzVkLWFiMGYtZjgyMGEyYjQ3MzA0XCIsXCJzZXNzaW9uSWRcIjpcImEwNWE1N2RhLWVmNTQtNDFmNi04Y2E4LWZlMjEzNmVkNWM3OFwiLFwiYWRkaXRpb25hbERhdGFcIjpcIno1NC9NZzltdjE2WXdmb0gvS0EwYktUcStWVXpEM1F2aFJ5Mk9OMnYxdVZSTkczdTlLa2pWZDNoWjU1ZStNZERhWXBOVi9UOUxIRmtQejFFQisybTdRPT1cIixcInJvbGVcIjpcImF1dGgtdG90cFwiLFwic291cmNlSXBBZGRyZXNzXCI6XCIyNDAxOjQ5MDA6ODgxNjpkMWI1OmU5NGQ6NjFjNDo4Y2RmOjQzZDQsMTcyLjY5Ljg2LjE3NiwzNS4yNDEuMjMuMTIzXCIsXCJ0d29GYUV4cGlyeVRzXCI6MjU1OTEwNDY5MjUwMX0iLCJpc3MiOiJhcGV4LWF1dGgtcHJvZC1hcHAifQ.XjG-sVWAAU2_01fkTSWVayqLgMCscsouCT1earZaY4kS2ilkNw8vcM2v5XtOanqPQAjISXPdsqKCQg3lmmeK_w"
-secret = "ogv(PHrIw_!Z5fpQZ0K3U57puYJ5pNZU"
- 
+
+api_key = os.getenv("GROWW_API_KEY", "")
+secret = os.getenv("GROWW_API_SECRET", "")
+if not api_key or not secret:
+    raise SystemExit("Set GROWW_API_KEY and GROWW_API_SECRET environment variables.")
+
 access_token = GrowwAPI.get_access_token(api_key=api_key, secret=secret)
 
 print("Access Token:", access_token)
