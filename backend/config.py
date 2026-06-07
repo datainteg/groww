@@ -39,6 +39,16 @@ class Config:
     # Execution & Risk
     EXECUTION_MODE = os.getenv('EXECUTION_MODE', 'PAPER')
     SLIPPAGE_PERCENT = float(os.getenv('SLIPPAGE_PERCENT', 0.0005))
+
+    # HARD SAFETY: the scheduler will NOT auto-place LIVE orders unless this is
+    # explicitly true. Default false -> no unrestricted live auto-trading.
+    AUTO_TRADING_ENABLED = os.getenv('AUTO_TRADING_ENABLED', 'false').lower() == 'true'
+
+    # Accuracy gates for LIVE auto-entry (PAPER may relax). 0 disables a gate.
+    MIN_P_WIN = float(os.getenv('MIN_P_WIN', 0.0))
+    MIN_EXPECTED_VALUE = float(os.getenv('MIN_EXPECTED_VALUE', 0.0))
+    # When true, LIVE auto-entry is blocked unless a fitted calibration model exists.
+    REQUIRE_CALIBRATION_FOR_LIVE = os.getenv('REQUIRE_CALIBRATION_FOR_LIVE', 'true').lower() == 'true'
     
     # Telegram
     TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')

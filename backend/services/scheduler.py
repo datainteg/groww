@@ -59,6 +59,11 @@ class SchedulerService:
         self._ctx_client = None
         self._ctx_engine = None
         self._ctx_checked_at = 0.0
+        # Health telemetry (exposed via get_status()).
+        self.last_candle_sync = None
+        self.last_strategy_eval = None
+        self.last_reconciliation = None
+        self.last_blocked_reason = None
 
     def _redis(self):
         """Return the raw redis client or None if unavailable."""
@@ -113,6 +118,9 @@ class SchedulerService:
             return
         try:
             client.set(self.HEARTBEAT_KEY, str(int(time.time())), ex=120)
+            # Publish full status so the API process can serve it cross-process.
+            import json as _json
+            client.set('scheduler:status', _json.dumps(self.get_status()), ex=120)
         except Exception:
             pass
 
@@ -149,6 +157,48 @@ class SchedulerService:
         if user:
             return user
         return None
+
+    def _auto_entry_allowed(self, user_id: str) -> bool:
+        """Whether the scheduler may place NEW auto-entries for this user.
+        Exit/monitoring is always allowed; this gates ENTRIES only. LIVE is
+        hard-gated: needs AUTO_TRADING_ENABLED, Redis present (fail-closed),
+        and no reconciliation block."""
+        try:
+            from services.trade_safety import get_user_execution_mode
+            mode = get_user_execution_mode(user_id)
+        except Exception:
+            mode = str(config.EXECUTION_MODE).upper()
+
+        if mode == 'LIVE':
+            if not config.AUTO_TRADING_ENABLED:
+                self.last_blocked_reason = 'LIVE auto-trading disabled (AUTO_TRADING_ENABLED=false)'
+                return False
+            client = self._redis()
+            if client is None:
+                self.last_blocked_reason = 'Redis unavailable in LIVE -> auto-entry fail-closed'
+                return False
+            try:
+                if client.get(f'reconcile_blocked:{user_id}'):
+                    self.last_blocked_reason = 'Reconciliation mismatch -> auto-entry blocked'
+                    return False
+            except Exception:
+                pass
+        self.last_blocked_reason = None
+        return True
+
+    def get_status(self) -> dict:
+        """Scheduler health snapshot for the API/health route."""
+        return {
+            'leader_status': bool(self.is_leader),
+            'instance_id': self.instance_id,
+            'running': bool(self.scheduler.running) if self.scheduler else False,
+            'market_open': is_market_open(),
+            'auto_trading_enabled': bool(config.AUTO_TRADING_ENABLED),
+            'last_candle_sync': self.last_candle_sync,
+            'last_strategy_eval': self.last_strategy_eval,
+            'last_reconciliation': self.last_reconciliation,
+            'blocked_reason': self.last_blocked_reason,
+        }
 
     def _setup_jobs(self):
         """Setup scheduled jobs"""
@@ -287,7 +337,11 @@ class SchedulerService:
                     
                     if price > 0:
                         redis_client.cache_ltp(symbol, price, expiry=10)
-                        engine.evaluate_strategies(symbol, price)
+                        # Auto-ENTRY is gated (LIVE hard-off by default); exits +
+                        # monitoring always run so open trades are never stranded.
+                        if self._auto_entry_allowed(user_id):
+                            self.last_strategy_eval = int(time.time())
+                            engine.evaluate_strategies(symbol, price)
                         engine.monitor_active_trades(symbol, price)
             else:
                 print(f"LTP fetch failed: {ltp_result.get('error', 'Unknown error')}")
@@ -315,7 +369,8 @@ class SchedulerService:
             active_user = self._get_active_user()
             if not active_user or not active_user.get('groww_access_token'):
                 return
-            
+
+            self.last_candle_sync = int(time.time())
             token = encryption.decrypt(active_user['groww_access_token'])
             indices = ['NIFTY', 'BANKNIFTY', 'SENSEX']
             
@@ -419,6 +474,7 @@ class SchedulerService:
         if not is_market_open():
             return
         try:
+            self.last_reconciliation = int(time.time())
             from services.groww_client import get_groww_client
             from services.trading_engine import get_trading_engine
 

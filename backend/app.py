@@ -137,7 +137,7 @@ def create_app():
     @app.route('/api/health', methods=['GET'])
     def health():
         from database.redis_client import redis_client
-        hb, stale = None, None
+        hb, stale, sched = None, None, None
         client = getattr(redis_client, 'client', None)
         if client:
             try:
@@ -147,12 +147,21 @@ def create_app():
                     stale = (int(time.time()) - hb) > 30
             except Exception:
                 pass
+            try:
+                import json as _json
+                raw_status = client.get('scheduler:status')
+                if raw_status:
+                    sched = _json.loads(raw_status)
+            except Exception:
+                pass
         return jsonify({
             'status': 'healthy',
             'execution_mode': config.EXECUTION_MODE,
+            'auto_trading_enabled': bool(config.AUTO_TRADING_ENABLED),
             'version': '4.0.0',
             'scheduler_last_heartbeat': hb,
-            'scheduler_stale': stale
+            'scheduler_stale': stale,
+            'scheduler': sched
         })
     
     # Error handlers
