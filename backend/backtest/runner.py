@@ -86,6 +86,9 @@ def make_decision_fn(symbol: str, params: Dict[str, Any]) -> Callable[[List[Dict
     min_pwin = float(params.get('min_p_win', 0) or 0)
     min_ev = float(params.get('min_expected_value', 0) or 0)
 
+    stats = {'signals_seen': 0, 'confidence_blocked': 0, 'pwin_blocked': 0,
+             'ev_blocked': 0, 'trades_signaled': 0, 'warnings': set()}
+
     def decision_fn(history: List[Dict[str, Any]]) -> Dict[str, Any]:
         if len(history) < _MIN_HISTORY:
             return {'signal': None, 'confidence': 0}
@@ -97,19 +100,116 @@ def make_decision_fn(symbol: str, params: Dict[str, Any]) -> Callable[[List[Dict
         conf = res.get('confidence', 0) or 0
         if conf > 1:
             conf /= 100.0
+        if signal not in ('BULLISH', 'BEARISH'):
+            return {'signal': None, 'confidence': conf}
+
+        stats['signals_seen'] += 1
         p_win = res.get('p_win')
         ev = res.get('expected_value')
         regime = res.get('market_regime') or res.get('regime')
+
         if min_conf and conf < min_conf:
+            stats['confidence_blocked'] += 1
             return {'signal': None, 'confidence': conf}
-        if min_pwin and p_win is not None and p_win < min_pwin:
-            return {'signal': None, 'confidence': conf, 'p_win': p_win}
-        if min_ev and ev is not None and ev < min_ev:
-            return {'signal': None, 'confidence': conf}
+        if min_pwin:
+            if p_win is None:  # mirror live: missing p_win BLOCKS (don't silently pass)
+                stats['pwin_blocked'] += 1
+                stats['warnings'].add('p_win unavailable — calibration model missing.')
+                return {'signal': None, 'confidence': conf}
+            if p_win < min_pwin:
+                stats['pwin_blocked'] += 1
+                return {'signal': None, 'confidence': conf, 'p_win': p_win}
+        if min_ev:
+            if ev is None:
+                stats['ev_blocked'] += 1
+                stats['warnings'].add('expected_value unavailable.')
+                return {'signal': None, 'confidence': conf}
+            if ev < min_ev:
+                stats['ev_blocked'] += 1
+                return {'signal': None, 'confidence': conf}
+
+        stats['trades_signaled'] += 1
         return {'signal': signal, 'confidence': conf, 'p_win': p_win,
                 'expected_value': ev, 'regime': regime}
 
+    decision_fn.stats = stats  # type: ignore[attr-defined]
     return decision_fn
+
+
+def _validate_config(config: Dict[str, Any]) -> Optional[str]:
+    """Return an error string if the backtest config is invalid, else None."""
+    risk = config.get('risk', {}) or {}
+    params = config.get('parameters', {}) or {}
+    try:
+        risk_pct = float(risk.get('risk_pct', 0.01) or 0)
+        capital = float(risk.get('capital', 1_000_000) or 0)
+        lot_size = int(risk.get('lot_size', 50) or 0)
+        sl = float(params.get('sl_points', 20) or 0)
+        tgt = float(params.get('target_points', 40) or 0)
+    except (TypeError, ValueError):
+        return 'Invalid numeric parameter.'
+    if not (0 < risk_pct <= 0.05):
+        return 'risk_pct must be in (0, 0.05].'
+    if capital <= 0:
+        return 'capital must be > 0.'
+    if lot_size <= 0:
+        return 'lot_size must be > 0.'
+    if sl <= 0:
+        return 'sl_points must be > 0.'
+    if tgt <= 0:
+        return 'target_points must be > 0.'
+    if (config.get('mode') or '').upper() == 'OPTION_PREMIUM':
+        if not config.get('option_symbol'):
+            return "OPTION_PREMIUM requires 'option_symbol'."
+    return None
+
+
+def generate_backtest_verdict(metrics: Dict[str, Any], mode: str,
+                              wf: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Grade a run + decide paper/live readiness. INDEX_PROXY is NEVER live-ready."""
+    pf = float(metrics.get('profit_factor', 0) or 0)
+    exp = float(metrics.get('expectancy', 0) or 0)
+    n = int(metrics.get('count', 0) or 0)
+    wr = float(metrics.get('win_rate', 0) or 0)
+    reasons, warnings, next_steps = [], [], []
+
+    if n < 10:
+        grade = 'F'
+        reasons.append(f'Too few trades for confidence ({n}<10).')
+    elif exp > 0 and pf >= 1.3 and wr >= 0.4:
+        grade = 'A'
+    elif exp > 0 and pf >= 1.15:
+        grade = 'B'
+    elif exp > 0:
+        grade = 'C'
+    elif pf >= 0.9:
+        grade = 'D'
+    else:
+        grade = 'F'
+
+    paper_ready = grade in ('A', 'B', 'C') and n >= 20 and exp > 0
+    if not paper_ready:
+        next_steps.append('Reach positive expectancy over >=20 trades before paper validation.')
+
+    wf_passed = bool(wf and wf.get('passed'))
+    if mode == 'INDEX_PROXY':
+        warnings.append('INDEX_PROXY is directional validation only — never live-ready.')
+        live_candidate = False
+    else:
+        live_candidate = paper_ready and wf_passed
+        if not wf_passed:
+            next_steps.append('Pass walk-forward (positive pooled OOS expectancy, PF>=1.15, stability>=0.6, >=30 trades).')
+
+    next_steps.append('Validate in PAPER before any LIVE.')
+    return {
+        'grade': grade,
+        'paper_ready': paper_ready,
+        'live_ready': False,  # never auto-true; LIVE always requires paper evidence + flags
+        'live_candidate': live_candidate,
+        'reasons': reasons,
+        'warnings': warnings,
+        'next_steps': next_steps,
+    }
 
 
 def run_backtest_for_user(user_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -143,6 +243,9 @@ def run_backtest_for_user(user_id: str, config: Dict[str, Any]) -> Dict[str, Any
         return {'run_id': run_id, 'status': 'FAILED', 'error': err}
 
     try:
+        cfg_err = _validate_config(config)
+        if cfg_err:
+            return _fail(cfg_err)
         decision_fn = make_decision_fn(symbol, params)
         common = dict(
             lot_size=int(risk.get('lot_size', 50)),
@@ -170,18 +273,34 @@ def run_backtest_for_user(user_id: str, config: Dict[str, Any]) -> Dict[str, Any
             option_type = config.get('option_type') or ('CE' if str(option_symbol).upper().endswith('CE') else 'PE')
             result = bt_engine.run_option_premium_backtest(
                 index_candles, option_candles, decision_fn, option_type, **common)
+            mr = result.get('matched_ratio', 1.0)
+            if mr < 0.8:
+                return _fail(f"Option candles do not sufficiently align with index candles "
+                             f"(matched {mr * 100:.0f}% < 80%). Sync this strike's candles for the range.")
         else:
             result = bt_engine.run_backtest(index_candles, decision_fn, **common)
 
         trades = result.pop('trades', [])
         db.save_backtest_trades(run_id, trades)
+
+        gating = dict(getattr(decision_fn, 'stats', {}) or {})
+        if isinstance(gating.get('warnings'), set):
+            gating['warnings'] = sorted(gating['warnings'])
+        gating['trades_taken'] = len(trades)
+        verdict = generate_backtest_verdict(result, mode)
+
         db.save_backtest_report(run_id, {'metrics': result, 'mode': mode,
                                          'symbol': symbol, 'timeframe': interval,
-                                         'index_proxy_warning': mode == 'INDEX_PROXY'})
+                                         'index_proxy_warning': mode == 'INDEX_PROXY',
+                                         'matched_ratio': result.get('matched_ratio'),
+                                         'gating': gating, 'verdict': verdict})
         summary = {k: result.get(k) for k in _SUMMARY_KEYS}
+        summary['grade'] = verdict['grade']
+        summary['paper_ready'] = verdict['paper_ready']
         db.update_backtest_run(run_id, {'status': 'COMPLETED', 'finished_at': datetime.utcnow(),
-                                        'summary': summary, 'trade_count': len(trades)})
-        return {'run_id': run_id, 'status': 'COMPLETED', 'summary': summary}
+                                        'summary': summary, 'trade_count': len(trades),
+                                        'verdict': verdict})
+        return {'run_id': run_id, 'status': 'COMPLETED', 'summary': summary, 'verdict': verdict}
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -238,6 +357,10 @@ def run_walk_forward_for_user(user_id: str, config: Dict[str, Any]) -> Dict[str,
     wf['pooled_expectancy'] = pooled_exp
     # Overfit warning: windows mostly inconsistent or pooled OOS edge non-positive.
     wf['overfit_warning'] = bool(n > 0 and (stability < 0.5 or pooled_exp <= 0))
+    # Pass criteria: positive pooled OOS edge, PF>=1.15, stable, enough trades.
+    pooled = wf.get('pooled', {})
+    wf['passed'] = bool(pooled_exp > 0 and float(pooled.get('profit_factor', 0) or 0) >= 1.15
+                        and stability >= 0.6 and int(wf.get('n_trades', 0)) >= 30)
     wf['symbol'] = symbol
     wf['timeframe'] = interval
     return wf

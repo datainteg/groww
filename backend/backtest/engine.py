@@ -547,8 +547,10 @@ def run_option_premium_backtest(
         _close_option_trade(trades, open_trade, exit_prem, "EOD", n - 1, last_ts,
                             slippage_pct, brokerage_per_order)
 
+    matched = sum(1 for c in index_candles if _bar_time(c) in opt_by_ts)
     result = metrics.compute_metrics(trades)
     result["trades"] = trades
+    result["matched_ratio"] = (matched / n) if n else 0.0
     return result
 
 

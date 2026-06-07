@@ -167,6 +167,33 @@ def test_option_premium_missing_candles(monkeypatch):
     assert res['status'] == 'FAILED' and 'option-premium candles' in res['error'].lower()
 
 
+def test_verdict_index_proxy_never_live():
+    v = R.generate_backtest_verdict({'count': 50, 'profit_factor': 2.0, 'expectancy': 100, 'win_rate': 0.5}, 'INDEX_PROXY')
+    assert v['grade'] == 'A' and v['live_ready'] is False and v['live_candidate'] is False
+    assert any('INDEX_PROXY' in w for w in v['warnings'])
+
+
+def test_verdict_too_few_trades():
+    v = R.generate_backtest_verdict({'count': 5, 'profit_factor': 3.0, 'expectancy': 100, 'win_rate': 0.6}, 'OPTION_PREMIUM')
+    assert v['grade'] == 'F' and v['paper_ready'] is False
+
+
+def test_validate_config_rejects():
+    assert R._validate_config({'risk': {'risk_pct': 0.2}}) is not None      # > 0.05
+    assert R._validate_config({'parameters': {'sl_points': 0}}) is not None  # <= 0
+    assert R._validate_config({'mode': 'OPTION_PREMIUM'}) is not None        # no option_symbol
+    assert R._validate_config({'symbol': 'NIFTY', 'mode': 'INDEX_PROXY'}) is None
+
+
+def test_decision_fn_blocks_missing_pwin_when_required(monkeypatch):
+    monkeypatch.setattr(R, 'analyze_market',
+                        lambda df, sym: {'signal': 'BULLISH', 'confidence': 0.9})  # no p_win
+    fn = R.make_decision_fn('NIFTY', {'min_p_win': 0.55})
+    d = fn([{}] * 40)
+    assert d['signal'] is None
+    assert fn.stats['pwin_blocked'] == 1
+
+
 def test_option_premium_happy(monkeypatch):
     monkeypatch.setattr(R, 'db', _FakeDB())
     monkeypatch.setattr(R, '_load_candles', lambda sym, iv, s, e: _ramp(50))  # index + option aligned by ts
