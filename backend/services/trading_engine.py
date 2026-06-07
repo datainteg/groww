@@ -201,15 +201,10 @@ class TradingEngine:
                 if active_trade:
                     continue
 
-                # Check Signal Thresholds.
-                # The engine's `confidence` is a 0-1 fraction, but strategies
-                # may store `min_confidence` as a percent (e.g. 70). Normalize
-                # percents to a fraction so e.g. 0.72 correctly passes a "70".
-                min_confidence = strategy.get('min_confidence', 0.6)
-                if min_confidence is None:
-                    min_confidence = 0.6
-                if min_confidence > 1:
-                    min_confidence = min_confidence / 100.0
+                # Engine confidence is a 0-1 fraction; strategies may store
+                # min_confidence as a percent (e.g. 70). Normalize before compare.
+                min_confidence = risk_manager.normalize_min_confidence(
+                    strategy.get('min_confidence'))
                 if confidence < min_confidence:
                     continue
 

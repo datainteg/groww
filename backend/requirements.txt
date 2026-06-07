@@ -36,3 +36,6 @@ pytz==2024.1
 # WebSocket (optional)
 python-socketio==5.10.0
 eventlet==0.34.2
+
+# Testing (dev)
+pytest>=7.0
