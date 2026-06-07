@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "AI Trading System API - Complete",
-    "description": "Complete API collection for AI Trading System with Groww integration.\n\n**Setup Instructions:**\n1. Import this collection into Postman\n2. Set the `base_url` variable to your server URL (default: http://localhost:5000/api)\n3. First call Register or Login to get an access_token\n4. The access_token will be automatically saved to the collection variable\n\n**Authentication:**\nAll endpoints except /health and /auth/register and /auth/login require a Bearer token in the Authorization header.",
+    "description": "API collection for the AI Trading System (Groww NIFTY F&O).\n\n**Setup:**\n1. Import this collection; set `base_url` (default http://localhost:5000/api).\n2. Login with the seeded default user (email: cybersquadmr98@gmail.com, password: Trader@123). The token is saved to `access_token` automatically.\n3. First login forces a password change — call Auth > Change Password.\n4. Connect Groww: Auth > Update Groww Credentials (key + secret). The key needs the **live_data** scope for market data, and tokens reset ~6 AM IST daily — re-connect each morning. Verify with Auth > Get Groww Status.\n\n**Auth:** all endpoints except /health, /auth/register, /auth/login need a Bearer token. Data is REAL (no mock).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -71,9 +71,9 @@
             "header": [{"key": "Content-Type", "value": "application/json"}],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"groww_api_key\": \"\",\n  \"groww_api_secret\": \"\"\n}"
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"StrongPass123\"\n}"
             },
-            "description": "Register a new user. Groww API credentials are optional - you can add them later."
+            "description": "Register a user (email format + min 8-char password enforced). Single-user setups use the seeded default account instead."
           }
         },
         {
@@ -101,9 +101,9 @@
             "header": [{"key": "Content-Type", "value": "application/json"}],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+              "raw": "{\n  \"email\": \"cybersquadmr98@gmail.com\",\n  \"password\": \"Trader@123\"\n}"
             },
-            "description": "Login with email and password. Returns JWT access token."
+            "description": "Login (seeded default user). Returns JWT + must_change_password (true on first login)."
           }
         },
         {
@@ -166,12 +166,37 @@
           }
         },
         {
+          "name": "Change Password (first login)",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/auth/profile",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{access_token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"Trader@123\",\n  \"new_password\": \"YourNewStrongPass123\"\n}"
+            },
+            "description": "Change password (>=8 chars). Required on first login; clears must_change_password."
+          }
+        },
+        {
+          "name": "Get Groww Status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/auth/groww-status",
+            "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            "description": "Live check: does the stored Groww token actually work right now? Returns {connected, working, reason}."
+          }
+        },
+        {
           "name": "Logout",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/auth/logout",
             "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
-            "description": "Logout user and invalidate session."
+            "description": "Logout — revokes the JWT via the Redis JTI blocklist."
           }
         }
       ]
@@ -466,7 +491,7 @@
             "method": "POST",
             "url": "{{base_url}}/strategy/candles/NIFTY/sync?interval=5",
             "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
-            "description": "Fetch and sync candle data from Groww API (or generate mock data if not connected)."
+            "description": "Fetch + store real candles from Groww (needs a connected token). Off-hours/weekends it pulls the last trading session (e.g. Friday). No mock data."
           }
         },
         {
