@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
-import { 
+import { Link } from 'react-router-dom'
+import {
   Plus, Play, Pause, Edit2, Trash2, Target, RefreshCw,
-  Zap, AlertTriangle, CheckCircle2, Settings, Shield, Clock, 
-  Activity, Briefcase, Info, RotateCcw, Gauge
+  Zap, AlertTriangle, CheckCircle2, Settings, Shield, Clock,
+  Activity, Briefcase, Info, RotateCcw, Gauge, ClipboardCheck, FlaskConical
 } from 'lucide-react'
 
+import { Badge } from '../components/ui'
 import { useStrategyStore } from '../store/strategy.store'
 import { useMarketStore } from '../store/market.store'
 import { useUIStore } from '../store/ui.store'
@@ -23,7 +25,7 @@ interface AtmResponse {
   strikes: number[]
 }
 
-type TabType = 'ENTRY' | 'RISK' | 'SAFEGUARDS' | 'CONFIDENCE'
+type TabType = 'ENTRY' | 'RISK' | 'SAFEGUARDS' | 'CONFIDENCE' | 'REVIEW'
 
 const defaultForm: StrategyFormData = {
   name: '',
@@ -388,10 +390,11 @@ export default function StrategyPage() {
             <div className="flex justify-between items-start mb-4 pl-3">
               <div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">{strategy.name}</h3>
-                <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400 items-center">
                   <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600">{strategy.index}</span>
                   <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600">{strategy.selection_mode}</span>
                   <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600">{strategy.quantity} Qty</span>
+                  <Badge variant={strategy.is_active ? 'success' : 'neutral'}>{strategy.is_active ? 'Active' : 'Inactive'}</Badge>
                 </div>
               </div>
               <div className="text-right">
@@ -438,7 +441,10 @@ export default function StrategyPage() {
               >
                 {strategy.is_active ? <><Pause className="w-4 h-4"/> Stop</> : <><Play className="w-4 h-4"/> Start</>}
               </button>
-              <button onClick={() => openForm(strategy)} disabled={strategy.is_active} className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50">
+              <Link to="/backtest" title="Backtest this strategy" aria-label="Backtest this strategy" className="p-2 rounded bg-cyan-100 dark:bg-cyan-500/10 hover:bg-cyan-200 dark:hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center">
+                <FlaskConical className="w-4 h-4"/>
+              </Link>
+              <button onClick={() => openForm(strategy)} disabled={strategy.is_active} aria-label="Edit strategy" className="p-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50">
                 <Edit2 className="w-4 h-4"/>
               </button>
               <button onClick={() => handleDelete(strategy._id, strategy.name)} disabled={strategy.is_active} className="p-2 rounded bg-red-100 dark:bg-red-500/10 hover:bg-red-200 dark:hover:bg-red-500/20 text-red-600 dark:text-red-400 disabled:opacity-50">
@@ -456,6 +462,7 @@ export default function StrategyPage() {
             {renderTabButton('RISK', 'Risk', <Shield className="w-4 h-4"/>)}
             {renderTabButton('SAFEGUARDS', 'Safeguards', <Settings className="w-4 h-4"/>)}
             {renderTabButton('CONFIDENCE', 'Confidence', <Gauge className="w-4 h-4"/>)}
+            {renderTabButton('REVIEW', 'Review', <ClipboardCheck className="w-4 h-4"/>)}
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
@@ -661,6 +668,52 @@ export default function StrategyPage() {
                 onChange={(key, val) => updateField(key as keyof StrategyFormData, val)}
                 collapsed={false}
               />
+            )}
+
+            {activeTab === 'REVIEW' && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+                  <h4 className="font-bold text-gray-900 dark:text-white text-sm mb-3">Summary</h4>
+                  <div className="grid grid-cols-2 gap-y-2 text-sm">
+                    <span className="text-gray-500">Name</span><span className="text-right font-medium text-gray-900 dark:text-white">{form.name || '—'}</span>
+                    <span className="text-gray-500">Index / Expiry</span><span className="text-right font-medium text-gray-900 dark:text-white">{form.index} · {form.expiry || '—'}</span>
+                    <span className="text-gray-500">Selection</span><span className="text-right font-medium text-gray-900 dark:text-white">{form.selection_mode}{form.selection_mode === 'DYNAMIC' ? ` (offset ${form.atm_offset})` : ''}</span>
+                    <span className="text-gray-500">Qty / Product</span><span className="text-right font-medium text-gray-900 dark:text-white">{form.quantity} · {form.product}</span>
+                    <span className="text-gray-500">Signals</span><span className="text-right font-medium text-gray-900 dark:text-white">{form.allowed_signals}</span>
+                    <span className="text-gray-500">Min confidence</span><span className="text-right font-medium text-gray-900 dark:text-white">{form.min_confidence}%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Estimated risk per trade</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-lg border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/5 p-3">
+                      <p className="text-[10px] uppercase text-gray-500 font-bold">Max risk</p>
+                      <p className="text-base font-bold text-red-600 dark:text-red-400 font-mono">{formatCurrency(form.stop_loss * form.quantity)}</p>
+                      <p className="text-[10px] text-gray-400">{form.stop_loss} pts × {form.quantity}</p>
+                    </div>
+                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/5 p-3">
+                      <p className="text-[10px] uppercase text-gray-500 font-bold">Max reward</p>
+                      <p className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono">{formatCurrency(form.target * form.quantity)}</p>
+                      <p className="text-[10px] text-gray-400">{form.target} pts × {form.quantity}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+                      <p className="text-[10px] uppercase text-gray-500 font-bold">Reward : Risk</p>
+                      <p className="text-base font-bold text-gray-900 dark:text-white font-mono">{form.stop_loss > 0 ? (form.target / form.stop_loss).toFixed(2) : '—'}</p>
+                      <p className="text-[10px] text-gray-400">daily loss cap ₹{form.max_loss_limit}</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">Premium-points estimate; real option fills differ — validate with an OPTION_PREMIUM backtest.</p>
+                </div>
+
+                <div className="rounded-xl border border-cyan-200 dark:border-cyan-500/20 bg-cyan-50 dark:bg-cyan-500/5 p-4 text-xs text-gray-600 dark:text-dark-300 space-y-1">
+                  <p><b>Min confidence</b> — engine conviction (0–100%); no entry below this.</p>
+                  <p><b>P(win)</b> — calibrated win probability (LIVE only; needs a fitted calibration model).</p>
+                  <p><b>Expected value</b> — average P&L per trade after costs; must be positive before live.</p>
+                </div>
+
+                <Link to="/backtest" className="btn-outline w-full"><FlaskConical className="w-4 h-4" /> Run a backtest first</Link>
+              </div>
             )}
           </div>
 
