@@ -4,11 +4,12 @@ import {
   Zap, TrendingUp, TrendingDown, Activity, RefreshCw, BarChart3, 
   Target, AlertTriangle, ArrowUpRight, ArrowDownRight, Clock,
   ChevronRight, Play, Pause, DollarSign, Layers, Minus,
-  Volume2, Gauge, Eye, Info
+  Volume2, Gauge, Eye, Info, FlaskConical, ShieldCheck
 } from 'lucide-react'
-import { useMarketStore, useStrategyStore, useTradeStore, useUIStore, useDirectionStore } from '../store'
+import { useMarketStore, useStrategyStore, useTradeStore, useUIStore, useDirectionStore, useHealthStore, useAuthStore } from '../store'
 import { formatCurrency, formatPercent, getISTString, getPnlClass } from '../utils/formatter'
 import Modal from '../components/common/Modal'
+import { Badge } from '../components/ui'
 import type { MarketDirection, DirectionType } from '../types'
 
 // ==================== HELPERS ====================
@@ -216,6 +217,24 @@ const DirectionAnalysisContent = ({
 
 // ==================== MAIN COMPONENT ====================
 
+function QuickAction({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
+  return (
+    <Link to={to} className="rounded-xl bg-white dark:bg-dark-900 border border-gray-200 dark:border-dark-700 p-4 flex flex-col items-center justify-center gap-2 hover:border-primary-400 hover:shadow-md transition-all text-center">
+      <span className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 flex items-center justify-center">{icon}</span>
+      <span className="text-xs font-semibold text-gray-700 dark:text-dark-200">{label}</span>
+    </Link>
+  )
+}
+
+function StatusPill({ label, value, variant }: { label: string; value: string; variant: 'success' | 'danger' | 'warning' | 'paper' | 'live' | 'neutral' }) {
+  return (
+    <div className="rounded-xl bg-white dark:bg-dark-900 border border-gray-200 dark:border-dark-700 px-3 py-2.5 flex items-center justify-between gap-2">
+      <span className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-dark-400 font-bold">{label}</span>
+      <Badge variant={variant}>{value}</Badge>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   // Store Hooks
   const { marketStatus, indices, fetchIndices } = useMarketStore()
@@ -223,6 +242,8 @@ export default function Dashboard() {
   const { dailyPnl, activeTrades, fetchDailyPnl, fetchActiveTrades } = useTradeStore()
   const { settings, addToast } = useUIStore()
   const { directions, fetchAllDirections, fetchDirection } = useDirectionStore()
+  const { health } = useHealthStore()
+  const { user } = useAuthStore()
   
   // Local State
   const [currentTime, setCurrentTime] = useState(getISTString())
@@ -343,6 +364,22 @@ export default function Dashboard() {
           <RefreshCw className={`w-4 h-4 group-hover:text-blue-500 transition-colors ${refreshing ? 'animate-spin' : ''}`} />
           Refresh Data
         </button>
+      </div>
+
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <QuickAction to="/trades" icon={<Play className="w-5 h-5" />} label="Paper Trade" />
+        <QuickAction to="/backtest" icon={<FlaskConical className="w-5 h-5" />} label="Backtest" />
+        <QuickAction to="/strategy" icon={<Layers className="w-5 h-5" />} label="Strategy Lab" />
+        <QuickAction to="/safety" icon={<ShieldCheck className="w-5 h-5" />} label="Safety Center" />
+      </div>
+
+      {/* System status strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatusPill label="Mode" value={settings?.execution_mode || 'PAPER'} variant={settings?.execution_mode === 'LIVE' ? 'live' : 'paper'} />
+        <StatusPill label="Scheduler" value={health?.scheduler_stale ? 'Down' : 'Healthy'} variant={health?.scheduler_stale ? 'danger' : 'success'} />
+        <StatusPill label="Data feed" value={health?.scheduler_stale ? 'Stale' : 'Live'} variant={health?.scheduler_stale ? 'warning' : 'success'} />
+        <StatusPill label="Token" value={user?.broker_connected ? (user?.needs_groww_refresh ? 'Stale' : 'Fresh') : 'Not set'} variant={user?.broker_connected ? (user?.needs_groww_refresh ? 'warning' : 'success') : 'neutral'} />
       </div>
 
       {/* Kill Switch Alert */}
