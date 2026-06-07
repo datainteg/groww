@@ -456,3 +456,76 @@ export interface PaginatedResponse<T> {
   limit: number
   hasMore: boolean
 }
+
+// ==================== BACKTESTING MACHINE ====================
+export type BacktestMode = 'INDEX_PROXY' | 'OPTION_PREMIUM'
+export type BacktestStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+
+export interface BacktestConfig {
+  symbol: string
+  timeframe: string
+  start_date?: string
+  end_date?: string
+  mode: BacktestMode
+  strategy_id?: string
+  parameters?: Record<string, any>
+  risk?: Record<string, any>
+  costs?: Record<string, any>
+}
+
+export interface BacktestRun {
+  run_id: string
+  symbol: string
+  timeframe: string
+  mode: BacktestMode
+  status: BacktestStatus
+  start_date?: string
+  end_date?: string
+  parameters?: Record<string, any>
+  risk?: Record<string, any>
+  costs?: Record<string, any>
+  summary?: Record<string, any>
+  trade_count?: number
+  error?: string
+  started_at?: string
+  finished_at?: string
+}
+
+export interface BacktestTrade {
+  direction?: string
+  option_type?: string
+  entry_time?: any
+  exit_time?: any
+  entry_index?: number
+  exit_index?: number
+  entry_premium?: number
+  exit_premium?: number
+  qty?: number
+  lots?: number
+  gross?: number
+  charges?: number
+  slippage?: number
+  net?: number
+  exit_reason?: string
+  confidence?: number
+  regime?: string
+  entry_bar?: number
+  exit_bar?: number
+}
+
+export interface EquityPoint { i: number; equity: number; time?: string | null }
+export interface DrawdownPoint { i: number; drawdown: number; time?: string | null }
+export interface DailyPnlPoint { date: string; net: number }
+
+export interface BacktestEquity {
+  equity_curve: EquityPoint[]
+  drawdown_curve: DrawdownPoint[]
+  daily_pnl: DailyPnlPoint[]
+}
+
+export interface CalibrationStatus {
+  exists: boolean
+  fitted: boolean
+  path?: string
+  error?: string
+}

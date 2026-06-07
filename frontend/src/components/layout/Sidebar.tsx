@@ -7,6 +7,7 @@ import {
   Activity,
   Zap,
   TrendingUp,
+  FlaskConical,
   X,
 } from 'lucide-react'
 
@@ -16,6 +17,7 @@ const navigation = [
   { name: 'Live Trades', href: '/trades', icon: Activity },
   { name: 'Charts', href: '/charts', icon: LineChart },
   { name: 'AI Signals', href: '/signals', icon: Zap },
+  { name: 'Backtest Lab', href: '/backtest', icon: FlaskConical },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 

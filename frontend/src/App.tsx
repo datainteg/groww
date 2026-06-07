@@ -8,6 +8,7 @@ import Strategy from './pages/Strategy'
 import Trades from './pages/Trades'
 import Charts from './pages/Charts'
 import Signals from './pages/Signals'
+import Backtest from './pages/Backtest'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
@@ -67,6 +68,7 @@ export default function App() {
           <Route path="/trades" element={<Trades />} />
           <Route path="/charts" element={<Charts />} />
           <Route path="/signals" element={<Signals />} />
+          <Route path="/backtest" element={<Backtest />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
