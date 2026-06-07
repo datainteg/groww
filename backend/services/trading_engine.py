@@ -348,9 +348,11 @@ class TradingEngine:
         target_strike = atm_strike + offset
         
         # 4. Find Symbol in DB (Nearest Expiry)
+        # Nearest expiry FIRST. Instruments store the date in 'expiry_date'
+        # (sorting by the non-existent 'expiry' picked an arbitrary contract).
         instrument = db.instruments.find_one({
             'trading_symbol': {'$regex': f'^{index_symbol}.*{target_strike}{option_type}$'}
-        }, sort=[('expiry', 1)])  # Sort by date ascending
+        }, sort=[('expiry_date', 1)])
 
         if not instrument:
              raise Exception(f"No instrument found for {index_symbol} {target_strike} {option_type}")
@@ -663,7 +665,23 @@ class TradingEngine:
             order_id = result.get('order_id')
             if order_id:
                 final_exit_price = self._get_order_fill_price(order_id)
-        
+
+        # LIVE: NEVER finalize an exit at price 0 (would record a false total loss).
+        # Leave the trade OPEN, flag for reconciliation, and alert instead.
+        if self.execution_mode == 'LIVE' and final_exit_price <= 0:
+            self._set_reconcile_block(True)
+            try:
+                db.update_trade(trade['_id'], {'order_status': 'EXIT_UNCONFIRMED', 'reconcile_required': True})
+            except Exception:
+                pass
+            try:
+                telegram_alert.send_kill_switch_alert(
+                    f"LIVE exit fill unconfirmed for {trading_symbol} — NOT closed at 0; reconcile required.")
+            except Exception:
+                pass
+            return {'success': False, 'pending': True,
+                    'reason': 'LIVE exit fill price unconfirmed — trade left open for reconciliation'}
+
         # Calculate P&L
         entry_price = trade.get('entry_price', 0)
         pnl = (final_exit_price - entry_price) * trade['quantity']
