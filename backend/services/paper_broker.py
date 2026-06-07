@@ -313,7 +313,9 @@ class PaperBroker:
         losing = 0
         
         for trade in trades:
-            if trade.get('execution_mode') == 'PAPER' and trade.get('status') == 'closed':
+            # Trades are stored with status 'CLOSED' (uppercase). The old
+            # lowercase 'closed' check matched nothing -> paper daily P&L always 0.
+            if trade.get('execution_mode') == 'PAPER' and str(trade.get('status', '')).upper() == 'CLOSED':
                 pnl = trade.get('pnl', 0)
                 total_pnl += pnl
                 

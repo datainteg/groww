@@ -603,38 +603,31 @@ def execute_strategy_trade():
     if str(strategy.get('user_id')) != user_id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    # 2. Acquire Lock
-    with acquire_trade_lock(user_id) as acquired:
-        if not acquired:
-            return jsonify({'error': 'System busy. Previous order processing...'}), 429
-        
-        try:
-            from services import get_trading_engine
-            engine = get_trading_engine(user_id)
-            
-            # Build minimal signal data for execute_entry
-            signal_data = {
-                'signal': 'BULLISH' if option_type == 'CE' else 'BEARISH',
-                'confidence': 1.0,
-                'manual_execution': True
-            }
-            
-            # Note: execute_entry inside trading_engine needs to handle PAPER/LIVE check
-            # but usually it relies on self.broker which is initialized with the correct mode.
-            result = engine.execute_entry(strategy, signal_data, option_type)
-            
-            if result.get('success'):
-                return jsonify({
-                    'success': True,
-                    'message': f'{option_type} order executed successfully',
-                    'trade_id': result.get('trade_id'),
-                    'option_type': option_type
-                })
-            else:
-                return jsonify({'error': result.get('error', 'Execution failed')}), 400
-                
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    # execute_entry enforces the central safety gate + per-user trade lock
+    # itself, so we do NOT wrap it in another lock (same key would deadlock).
+    try:
+        from services import get_trading_engine
+        engine = get_trading_engine(user_id)
+
+        signal_data = {
+            'signal': 'BULLISH' if option_type == 'CE' else 'BEARISH',
+            'confidence': 1.0,
+            'manual_execution': True
+        }
+        result = engine.execute_entry(strategy, signal_data, option_type, source="MANUAL")
+
+        if result.get('success'):
+            return jsonify({
+                'success': True,
+                'message': f'{option_type} order executed successfully',
+                'trade_id': result.get('trade_id'),
+                'option_type': option_type
+            })
+        # Surface the block reason (kill switch, limits, lock busy, stale data, ...).
+        return jsonify({'error': result.get('reason') or result.get('error', 'Execution failed'),
+                        'blocked': result.get('blocked', False)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @trade_bp.route('/quick-trade', methods=['POST'])
@@ -702,6 +695,16 @@ def quick_trade():
             # --- CRITICAL FIX: Fetch Mode from DB ---
             execution_mode = get_user_execution_mode(user_id)
 
+            # Safety gate for NEW entries (kill switch / daily limits / feed /
+            # data quality). SELL is a close — don't gate it as a new entry.
+            if transaction_type == 'BUY':
+                from services.trade_safety import validate_trade_allowed
+                _dec = validate_trade_allowed(user_id, strategy=strategy,
+                                              symbol=strategy.get('index'),
+                                              side=option_type, source="MANUAL")
+                if not _dec.get('allowed'):
+                    return jsonify({'error': _dec.get('reason'), 'blocked': True}), 400
+
             if execution_mode == 'PAPER':
                 broker = get_paper_broker(user_id)
             else:
@@ -725,6 +728,18 @@ def quick_trade():
             result = broker.place_order(**order_kwargs)
             
             if result.get('success'):
+                entry_price = result.get('execution_price') or result.get('average_price') or 0
+                # Compute ABSOLUTE sl/target from the FILLED price (was storing raw
+                # points as prices, e.g. stop_loss=20 -> exits near zero). BUY only.
+                sl_price, target_price = 0, 0
+                if transaction_type == 'BUY' and entry_price > 0:
+                    from utils.risk_manager import risk_manager
+                    _sl = risk_manager.calculate_sl_target(
+                        entry_price, strategy.get('stop_loss', 20),
+                        strategy.get('target', 40), option_type)
+                    sl_price = _sl['stop_loss']
+                    target_price = _sl['target']
+
                 # Record trade with strategy link
                 trade_data = {
                     'user_id': user_id,
@@ -735,22 +750,24 @@ def quick_trade():
                     'option_type': option_type,
                     'transaction_type': transaction_type,
                     'quantity': quantity,
-                    'entry_price': result.get('execution_price', result.get('average_price', 0)),
+                    'entry_price': entry_price,
                     'order_id': result.get('order_id'),
                     'status': 'OPEN' if transaction_type == 'BUY' else 'CLOSED',
-                    
-                    # --- CRITICAL FIX: Save Correct Mode ---
                     'execution_mode': execution_mode,
-                    
                     'entry_time': datetime.utcnow(),
-                    'stop_loss': strategy.get('stop_loss', 0),
-                    'target': strategy.get('target', 0),
-                    'current_sl': strategy.get('stop_loss', 0),
+                    'stop_loss': sl_price,
+                    'target': target_price,
+                    'current_sl': sl_price,
                     'trailing_sl_enabled': strategy.get('trailing_sl_enabled', False),
                     'pnl': 0
                 }
-                
+
                 trade_id = db.create_trade(trade_data)
+                if transaction_type == 'BUY':
+                    try:
+                        db.increment_strategy_orders(strategy_id)
+                    except Exception:
+                        pass
                 
                 return jsonify({
                     'success': True,

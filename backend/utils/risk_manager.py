@@ -19,19 +19,23 @@ class RiskManager:
         # Check kill switch
         if settings and settings.get('kill_switch'):
             return False, "Kill switch is active"
-        
-        # Check max orders per day
-        if strategy.get('orders_today', 0) >= strategy.get('max_orders_per_day', 2):
-            return False, f"Max daily orders reached ({strategy['orders_today']}/{strategy['max_orders_per_day']})"
-        
-        # Check profit limit
-        if strategy.get('pnl_today', 0) >= strategy.get('max_profit_limit', 10000):
-            return False, f"Daily profit limit reached (₹{strategy['pnl_today']:.0f})"
-        
-        # Check loss limit
-        if strategy.get('pnl_today', 0) <= -strategy.get('max_loss_limit', 5000):
-            return False, f"Daily loss limit reached (₹{strategy['pnl_today']:.0f})"
-        
+
+        # DB stores today_orders / today_pnl (mongodb.py). Fall back to the
+        # legacy orders_today / pnl_today names for old documents. Reading the
+        # wrong field previously meant these limits NEVER fired.
+        orders = strategy.get('today_orders', strategy.get('orders_today', 0)) or 0
+        pnl = strategy.get('today_pnl', strategy.get('pnl_today', 0)) or 0
+        max_orders = strategy.get('max_orders_per_day', 2)
+        max_profit = strategy.get('max_profit_limit', 10000)
+        max_loss = strategy.get('max_loss_limit', 5000)
+
+        if orders >= max_orders:
+            return False, f"Max daily orders reached ({orders}/{max_orders})"
+        if pnl >= max_profit:
+            return False, f"Daily profit limit reached (₹{pnl:.0f})"
+        if pnl <= -max_loss:
+            return False, f"Daily loss limit reached (₹{pnl:.0f})"
+
         return True, "OK"
     
     @staticmethod

@@ -346,10 +346,24 @@ class TradingEngine:
     # 3. EXECUTION METHODS - FIXED
     # =========================================================
 
-    def execute_entry(self, strategy: Dict, signal: Dict, option_type: str) -> Dict:
-        """Execute entry trade - FIXED for both PAPER and LIVE"""
+    def execute_entry(self, strategy: Dict, signal: Dict, option_type: str, source: str = "AUTO") -> Dict:
+        """Execute entry for PAPER/LIVE.
+
+        Enforces the central safety gate + a per-user trade lock HERE so every
+        entry path (auto scheduler, manual execute, quick-trade) is protected,
+        even if a caller forgot to pre-validate."""
         if not is_market_open() and self.execution_mode == 'LIVE':
              return {'success': False, 'error': 'Market is closed'}
+
+        # --- CENTRAL SAFETY GATE (defense in depth) ---
+        from services.trade_safety import validate_trade_allowed
+        _decision = validate_trade_allowed(
+            self.user_id, strategy=strategy, symbol=strategy.get('index'),
+            side=option_type, source=source)
+        if not _decision.get('allowed'):
+            print(f"[execute_entry] BLOCKED ({source}): {_decision.get('reason')}")
+            return {'success': False, 'blocked': True,
+                    'reason': _decision.get('reason'), 'source': source}
 
         # 1. Resolve Symbol
         offset = strategy.get('atm_offset', 0) 
@@ -406,9 +420,27 @@ class TradingEngine:
                 print(f"[risk_sizing] error (using strategy quantity): {_sz_exc}")
         # --- end feature-flagged block ---
 
-        # 2. Execute Order via broker
+        # 2. Place + record under the per-user trade lock (serialize entries;
+        #    LIVE fails closed if Redis is unavailable).
+        from services.trade_safety import acquire_user_trade_lock
+        with acquire_user_trade_lock(self.user_id, self.execution_mode) as locked:
+            if not locked:
+                return {'success': False, 'blocked': True,
+                        'reason': 'Trade lock busy or Redis unavailable in LIVE (fail-closed)',
+                        'source': source}
+            # Re-check duplicate open trade inside the lock (avoid TOCTOU double-entry).
+            if db.trades.find_one({'strategy_id': str(strategy['_id']), 'status': 'OPEN'}):
+                return {'success': False, 'blocked': True,
+                        'reason': 'Open trade already exists for this strategy', 'source': source}
+            return self._place_and_record_entry(
+                strategy, signal, option_type, trading_symbol, quantity, product, source)
+
+    def _place_and_record_entry(self, strategy: Dict, signal: Dict, option_type: str,
+                                trading_symbol: str, quantity: int, product: str,
+                                source: str = "AUTO") -> Dict:
+        """Broker placement + trade record. Runs only while holding the trade lock."""
         broker = self._get_broker()
-        
+
         # FIX 4: Unified order placement for both PAPER and LIVE
         result = broker.place_order(
             trading_symbol=trading_symbol,
@@ -477,7 +509,14 @@ class TradingEngine:
             trade_data['current_sl'] = trade_data['stop_loss']
 
         trade_id = db.create_trade(trade_data)
-        
+
+        # Count this order against the strategy's daily limit (was never done,
+        # so max_orders_per_day never enforced).
+        try:
+            db.increment_strategy_orders(str(strategy['_id']))
+        except Exception as _inc_exc:
+            print(f"[execute_entry] increment_strategy_orders failed: {_inc_exc}")
+
         # 4. Alert
         try:
             telegram_alert.send_entry_alert(trade_data)
