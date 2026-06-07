@@ -5,10 +5,29 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '../store/auth.store'
 import { useUIStore } from '../store/ui.store'
+import { Badge } from '../components/ui'
+
+const fmtIST = (iso?: string) => {
+  if (!iso) return '—'
+  const s = iso.endsWith('Z') || iso.includes('+') ? iso : `${iso}Z`
+  try {
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+      hour12: true, timeZone: 'Asia/Kolkata',
+    }).format(new Date(s))
+  } catch { return iso }
+}
 
 export default function Profile() {
   const { user, updateGrowwCredentials, logout } = useAuthStore()
   const { addToast } = useUIStore()
+
+  const tokenState = user?.broker_connected
+    ? (user?.needs_groww_refresh ? 'Stale' : 'Fresh')
+    : 'Not set'
+  const tokenVariant = user?.broker_connected
+    ? (user?.needs_groww_refresh ? 'warning' : 'success')
+    : 'neutral'
   
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
@@ -104,22 +123,31 @@ export default function Profile() {
 
           <div className="card p-5 border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 shadow-sm">
             <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
-              <Shield className="w-4 h-4 text-emerald-500" /> Account Status
+              <Shield className="w-4 h-4 text-emerald-500" /> Broker &amp; Token
             </h3>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-dark-400">Plan</span>
-                <span className="text-gray-900 dark:text-white font-medium">Pro</span>
+                <span className="text-gray-500 dark:text-dark-400">Broker</span>
+                <Badge variant={user?.broker_connected ? 'success' : 'warning'}>{user?.broker_connected ? 'Connected' : 'Paper only'}</Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-dark-400">Member Since</span>
-                <span className="text-gray-900 dark:text-white font-medium">Jan 2026</span>
+                <span className="text-gray-500 dark:text-dark-400">Token</span>
+                <Badge variant={tokenVariant as any}>{tokenState}</Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-dark-400">Security</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">2FA Enabled</span>
+                <span className="text-gray-500 dark:text-dark-400">Last generated</span>
+                <span className="text-gray-900 dark:text-white font-medium">{fmtIST(user?.token_generated_at)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 dark:text-dark-400">Daily reset</span>
+                <span className="text-gray-900 dark:text-white font-medium">~6 AM IST</span>
               </div>
             </div>
+            {user?.broker_connected && user?.needs_groww_refresh && (
+              <p className="mt-3 text-[11px] text-amber-600 dark:text-amber-400">
+                Token stale — re-enter your API key &amp; secret to refresh and restore live data.
+              </p>
+            )}
           </div>
         </div>
 

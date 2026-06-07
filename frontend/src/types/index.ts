@@ -7,6 +7,7 @@ export interface User {
   execution_mode: ExecutionMode
   groww_api_key_masked?: string
   token_expiry?: string
+  token_generated_at?: string
   token_valid?: boolean
   needs_groww_refresh?: boolean
   must_change_password?: boolean
