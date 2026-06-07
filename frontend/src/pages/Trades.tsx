@@ -4,9 +4,10 @@ import {
   BarChart3, CheckCircle2, TrendingUp, TrendingDown,
   Plus, ArrowUpRight, ArrowDownRight, Edit2, Calculator
 } from 'lucide-react'
-import { useTradeStore, useUIStore, useStrategyStore } from '../store' 
+import { useTradeStore, useUIStore, useStrategyStore, useHealthStore } from '../store'
 import { formatCurrency, getPnlClass } from '../utils/formatter'
 import Modal from '../components/common/Modal'
+import { ConfirmDialog, Badge } from '../components/ui'
 import { tradeApi } from '../api/trade.api'
 import { settingsApi } from '../api/settings.api'
 import type { Trade } from '../types'
@@ -33,12 +34,19 @@ export default function Trades() {
   const { 
     trades, activeTrades, dailyPnl, 
     fetchTrades, fetchActiveTrades, fetchPositions, fetchDailyPnl,
-    exitTrade, modifyTrade
+    exitTrade, exitAllTrades, modifyTrade
   } = useTradeStore()
 
   const { strategies, fetchStrategies } = useStrategyStore()
-  const { addToast } = useUIStore()
-  
+  const { addToast, settings } = useUIStore()
+  const { health } = useHealthStore()
+
+  const isLive = (settings?.execution_mode || 'PAPER').toUpperCase() === 'LIVE'
+  const feedDown = !!health?.scheduler_stale
+
+  const [exitConfirm, setExitConfirm] = useState<string | null>(null)
+  const [exitAllConfirm, setExitAllConfirm] = useState(false)
+  const [exitingAll, setExitingAll] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [showManualModal, setShowManualModal] = useState(false)
   const [showModifyModal, setShowModifyModal] = useState(false)
@@ -128,9 +136,8 @@ export default function Trades() {
     }
   }, [selectedStrategyId, strategies])
 
-  // --- 1. Exit Trade Handler ---
-  const handleExit = async (tradeId: string) => {
-    if (!confirm('Are you sure you want to exit this trade immediately?')) return
+  // --- 1. Exit Trade Handler (confirmed via dialog) ---
+  const doExit = async (tradeId: string) => {
     setExiting(tradeId)
     try {
       await exitTrade(tradeId)
@@ -140,6 +147,19 @@ export default function Trades() {
       notifyAction(err.response?.data?.error || err.error || 'Failed to exit trade', 'error')
     } finally {
       setExiting(null)
+    }
+  }
+
+  const doExitAll = async () => {
+    setExitingAll(true)
+    try {
+      await exitAllTrades()
+      notifyAction('Exit-all executed — all open positions closed.', 'success')
+      setTimeout(loadData, 800)
+    } catch (err: any) {
+      notifyAction(err.response?.data?.error || err.error || 'Failed to exit all', 'error')
+    } finally {
+      setExitingAll(false)
     }
   }
 
@@ -355,7 +375,7 @@ export default function Trades() {
       {/* Active Positions Table */}
       {activeTrades.length > 0 && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <span className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -363,9 +383,49 @@ export default function Trades() {
               </span>
               Active Positions <span className="bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-xs px-2 py-0.5 rounded-full">{activeTrades.length}</span>
             </h2>
+            <div className="flex items-center gap-2">
+              <Badge variant={feedDown ? 'danger' : 'success'}>{feedDown ? 'Feed down' : 'Live feed'}</Badge>
+              <button onClick={() => setExitAllConfirm(true)} disabled={exitingAll}
+                className="btn-danger text-xs py-1.5 px-3" aria-label="Exit all positions">
+                {exitingAll ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Exit All
+              </button>
+            </div>
           </div>
 
-          <div className="card overflow-hidden bg-white dark:bg-dark-900 border border-gray-200 dark:border-dark-700 shadow-sm">
+          {/* Mobile: position cards */}
+          <div className="md:hidden space-y-3">
+            {activeTrades.map((trade) => {
+              const currentPrice = trade.ltp || trade.entry_price
+              const side = trade.side || 'BUY'
+              const symbol = trade.trading_symbol || 'Unknown'
+              const pnl = (currentPrice - trade.entry_price) * trade.quantity * (side === 'BUY' ? 1 : -1)
+              return (
+                <div key={trade._id} className="rounded-xl bg-white dark:bg-dark-900 border border-gray-200 dark:border-dark-700 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-sm text-gray-900 dark:text-white">{symbol}</span>
+                      <Badge variant={side === 'BUY' ? 'success' : 'danger'}>{side}</Badge>
+                    </div>
+                    <span className={`font-mono font-bold text-sm ${getPnlClass(pnl)}`}>{formatCurrency(pnl)}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                    <div><p className="text-gray-400">Qty</p><p className="text-gray-900 dark:text-white">{trade.quantity}</p></div>
+                    <div><p className="text-gray-400">Entry</p><p className="font-mono">₹{(trade.entry_price ?? 0).toFixed(2)}</p></div>
+                    <div><p className="text-gray-400">LTP</p><p className="font-mono font-bold">₹{(currentPrice ?? 0).toFixed(2)}</p></div>
+                    <div><p className="text-gray-400">SL</p><p className="font-mono text-red-500">{trade.stop_loss != null ? `₹${trade.stop_loss.toFixed(2)}` : '—'}</p></div>
+                    <div><p className="text-gray-400">Target</p><p className="font-mono text-emerald-500">{trade.target != null ? `₹${trade.target.toFixed(2)}` : '—'}</p></div>
+                    <div><p className="text-gray-400">Trailing</p><p>{trade.trailing_sl_enabled ? 'On' : 'Off'}</p></div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => openModifyModal(trade)} className="btn-secondary flex-1 text-xs py-1.5">Modify</button>
+                    <button onClick={() => setExitConfirm(trade._id)} disabled={exiting === trade._id} className="btn-danger flex-1 text-xs py-1.5">Exit</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="hidden md:block card overflow-hidden bg-white dark:bg-dark-900 border border-gray-200 dark:border-dark-700 shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 dark:bg-dark-800/50 text-gray-500 dark:text-dark-400 font-bold text-xs uppercase border-b border-gray-200 dark:border-dark-700">
@@ -410,10 +470,10 @@ export default function Trades() {
                         </td>
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => openModifyModal(trade)} className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 transition-colors">
+                            <button onClick={() => openModifyModal(trade)} aria-label="Modify SL/target" className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 transition-colors">
                               <Edit2 className="w-4 h-4" />
                             </button>
-                            <button onClick={() => handleExit(trade._id)} disabled={exiting === trade._id} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-colors disabled:opacity-50">
+                            <button onClick={() => setExitConfirm(trade._id)} disabled={exiting === trade._id} aria-label="Exit trade" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-colors disabled:opacity-50">
                               {exiting === trade._id ? <RefreshCw className="w-4 h-4 animate-spin"/> : <X className="w-4 h-4" />}
                             </button>
                           </div>
@@ -579,6 +639,34 @@ export default function Trades() {
           </div>
         )}
       </Modal>
+
+      {/* Exit confirmation (LIVE requires typed confirmation) */}
+      <ConfirmDialog
+        open={!!exitConfirm}
+        title="Exit this position?"
+        message={isLive
+          ? <span>This will place a <b>real</b> market order to close the position now.</span>
+          : 'This closes the position immediately at market.'}
+        confirmLabel="Exit now"
+        danger
+        requireText={isLive ? 'EXIT' : undefined}
+        onConfirm={() => { if (exitConfirm) doExit(exitConfirm) }}
+        onClose={() => setExitConfirm(null)}
+      />
+
+      {/* Exit-all (typed confirmation in LIVE) */}
+      <ConfirmDialog
+        open={exitAllConfirm}
+        title={`Exit ALL ${activeTrades.length} positions?`}
+        message={isLive
+          ? <span><b>LIVE:</b> closes every open position with real market orders. This cannot be undone.</span>
+          : 'Closes every open paper position immediately.'}
+        confirmLabel="Exit all"
+        danger
+        requireText={isLive ? 'EXIT ALL' : undefined}
+        onConfirm={doExitAll}
+        onClose={() => setExitAllConfirm(false)}
+      />
     </div>
   )
 }
