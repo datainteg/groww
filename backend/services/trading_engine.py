@@ -72,18 +72,33 @@ class TradingEngine:
             rc = getattr(redis_client, 'client', None)
             if rc and not rc.set(f'signal_log:{sid}', '1', nx=True, ex=60):
                 return
+            def _f(v):
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            conf = _f(signal_data.get('confidence'))
+            bull = _f(signal_data.get('bullish_score'))
+            bear = _f(signal_data.get('bearish_score'))
+            net = _f(signal_data.get('net_score'))
+            # Calibration trains on EXACTLY these 4 features (must match the live
+            # p_win feature vector in decision_engine). feature_version guards
+            # against silent schema drift.
             db.log_signal({
                 'user_id': self.user_id,
                 'strategy_id': sid,
                 'symbol': signal_data.get('symbol'),
                 'signal': signal_data.get('signal'),
-                'confidence': signal_data.get('confidence'),
-                'net_score': signal_data.get('net_score'),
-                'bullish_score': signal_data.get('bullish_score'),
-                'bearish_score': signal_data.get('bearish_score'),
+                'confidence': conf,
+                'net_score': net,
+                'bullish_score': bull,
+                'bearish_score': bear,
                 'market_regime': signal_data.get('market_regime'),
                 'components': signal_data.get('components'),
                 'current_price': signal_data.get('current_price'),
+                'calibration_features': [conf, bull, bear, net],
+                'feature_version': 1,
             })
         except Exception as e:
             print(f"Signal log error: {e}")

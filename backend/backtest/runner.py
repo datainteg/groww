@@ -29,6 +29,26 @@ _SUMMARY_KEYS = ('count', 'total_net', 'win_rate', 'expectancy', 'profit_factor'
                  'trades_per_day', 'gross_profit', 'gross_loss')
 
 
+def build_calibration_features(doc: Dict[str, Any]) -> list:
+    """Return the 4-feature vector [confidence, bullish, bearish, net] for a
+    signal_log doc. Uses stored calibration_features when valid; otherwise
+    backfills from the named score fields so older logs are still trainable."""
+    f = doc.get('calibration_features')
+    if isinstance(f, list) and len(f) == 4:
+        try:
+            return [float(x) for x in f]
+        except (TypeError, ValueError):
+            pass
+
+    def _f(key):
+        try:
+            return float(doc.get(key) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return [_f('confidence'), _f('bullish_score'), _f('bearish_score'), _f('net_score')]
+
+
 def _date_to_epoch(d: Any, end: bool = False) -> Optional[int]:
     """'YYYY-MM-DD' (IST) -> epoch seconds. end=True -> end of that day."""
     if not d:
@@ -238,18 +258,16 @@ def calibrate_model(min_samples: int = 50) -> Dict[str, Any]:
         print(f"[calibrate] labeling skipped: {e}")
 
     docs = list(db.signal_log.find(
-        {'outcome.win': {'$exists': True}, 'calibration_features': {'$exists': True}},
-        {'_id': 0, 'calibration_features': 1, 'outcome': 1}))
+        {'outcome.win': {'$exists': True}},
+        {'_id': 0, 'calibration_features': 1, 'outcome': 1, 'confidence': 1,
+         'bullish_score': 1, 'bearish_score': 1, 'net_score': 1}))
     X, y = [], []
     for d in docs:
-        f = d.get('calibration_features')
         o = d.get('outcome', {})
-        if isinstance(f, list) and len(f) == 4 and 'win' in o:
-            try:
-                X.append([float(v) for v in f])
-                y.append(1 if o['win'] else 0)
-            except (TypeError, ValueError):
-                continue
+        if 'win' not in o:
+            continue
+        X.append(build_calibration_features(d))  # backfills older docs
+        y.append(1 if o['win'] else 0)
 
     n = len(y)
     if n < min_samples:

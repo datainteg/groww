@@ -201,6 +201,16 @@ def _validate_order(data):
     }, None
 
 
+def _index_of(trading_symbol: str):
+    """Best-effort underlying index from an option trading symbol (for the
+    LIVE stale-candle gate). Order matters: BANKNIFTY before NIFTY."""
+    s = str(trading_symbol or '').upper()
+    for ix in ('BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX', 'NIFTY'):
+        if s.startswith(ix):
+            return ix
+    return None
+
+
 # ==========================================
 # ROUTES
 # ==========================================
@@ -219,6 +229,18 @@ def place_order():
 
     # Determine mode BEFORE locking so the lock can fail-closed for LIVE.
     execution_mode = get_user_execution_mode(user_id)
+
+    # CENTRAL SAFETY: a BUY is a NEW entry -> full gate (kill switch / feed /
+    # stale candles in LIVE / overall limits). A SELL is an exit -> not entry-gated
+    # (must still be able to close even when the kill switch is on).
+    if clean['transaction_type'] == 'BUY':
+        from services.trade_safety import validate_trade_allowed
+        idx = _index_of(clean['trading_symbol'])
+        decision = validate_trade_allowed(user_id, strategy=None, symbol=idx,
+                                          side=clean['transaction_type'], source='DIRECT_ORDER')
+        if not decision.get('allowed'):
+            return jsonify({'success': False, 'blocked': True,
+                            'reason': decision.get('reason'), 'source': 'DIRECT_ORDER'}), 400
 
     with acquire_trade_lock(user_id, execution_mode=execution_mode) as acquired:
         if not acquired:

@@ -118,8 +118,11 @@ def check_broker_feed_health(user_id: str) -> Tuple[bool, str]:
     return True, "OK"
 
 
-def check_data_freshness(symbol: str, interval: str = '5') -> Tuple[bool, str]:
-    """Validate the latest stored candles (gaps / staleness / bad rows)."""
+def check_data_freshness(symbol: str, interval: str = '5', mode: Optional[str] = None) -> Tuple[bool, str]:
+    """Validate the latest stored candles (gaps / staleness / bad rows).
+    LIVE fails CLOSED — a missing/stale/invalid feed OR a checker crash blocks
+    entry. PAPER fails open (warn) on a checker crash."""
+    is_live = str(mode).upper() == 'LIVE'
     try:
         import time as _t
         from services.candle_service import candle_service
@@ -131,7 +134,9 @@ def check_data_freshness(symbol: str, interval: str = '5') -> Tuple[bool, str]:
         if not res.get('ok'):
             return False, f"Stale/invalid candles for {symbol}: {res.get('reason', 'data quality')}"
     except Exception as e:
-        # Don't hard-fail the whole gate on a checker error (caller decides per mode).
+        # In LIVE we must NOT trade on an unverifiable feed -> fail closed.
+        if is_live:
+            return False, f"data-quality check error (LIVE fail-closed): {e}"
         return True, f"data-quality check skipped ({e})"
     return True, "OK"
 
@@ -186,9 +191,9 @@ def validate_trade_allowed(user_id: str, strategy: Optional[Dict] = None,
     if not feed_ok and mode == 'LIVE':
         return block(build_trade_block_reason('feed', feed_reason))
 
-    # Data freshness — blocks LIVE; warns PAPER.
+    # Data freshness — blocks LIVE (fail-closed, incl. checker crash); warns PAPER.
     if symbol:
-        fresh_ok, fresh_reason = check_data_freshness(symbol)
+        fresh_ok, fresh_reason = check_data_freshness(symbol, mode=mode)
         if not fresh_ok and mode == 'LIVE':
             return block(build_trade_block_reason('data_quality', fresh_reason))
 
