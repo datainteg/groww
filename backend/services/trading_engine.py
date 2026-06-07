@@ -365,6 +365,14 @@ class TradingEngine:
             return {'success': False, 'blocked': True,
                     'reason': _decision.get('reason'), 'source': source}
 
+        # --- ACCURACY GATE for LIVE auto-entry (PAPER + manual are relaxed) ---
+        if self.execution_mode == 'LIVE' and source == 'AUTO':
+            _acc_ok, _acc_reason = self._accuracy_gate(strategy, signal)
+            if not _acc_ok:
+                print(f"[execute_entry] ACCURACY BLOCK ({source}): {_acc_reason}")
+                return {'success': False, 'blocked': True,
+                        'reason': f'[accuracy] {_acc_reason}', 'source': source}
+
         # 1. Resolve Symbol
         offset = strategy.get('atm_offset', 0) 
         try:
@@ -623,6 +631,29 @@ class TradingEngine:
             print(f"Telegram alert error: {e}")
         
         return {'success': True, 'pnl': pnl, 'exit_price': final_exit_price}
+
+    def _accuracy_gate(self, strategy: Dict, signal: Dict):
+        """Confidence / calibrated p_win / expected-value gate for LIVE auto-entry.
+        Returns (ok, reason). Raw confidence alone is NOT enough for live auto-entry."""
+        conf = signal.get('confidence', 0) or 0
+        min_conf = risk_manager.normalize_min_confidence(strategy.get('min_confidence'))
+        if conf < min_conf:
+            return False, f"confidence {conf:.2f} < {min_conf:.2f}"
+
+        p_win = signal.get('p_win')
+        if p_win is None:
+            # No calibrated probability available.
+            if config.REQUIRE_CALIBRATION_FOR_LIVE:
+                return False, "no calibrated p_win — fit a calibration model or set REQUIRE_CALIBRATION_FOR_LIVE=false"
+        else:
+            if config.MIN_P_WIN > 0 and p_win < config.MIN_P_WIN:
+                return False, f"p_win {p_win:.2f} < {config.MIN_P_WIN:.2f}"
+
+        ev = signal.get('expected_value')
+        if config.MIN_EXPECTED_VALUE > 0 and ev is not None and ev < config.MIN_EXPECTED_VALUE:
+            return False, f"expected_value {ev} < {config.MIN_EXPECTED_VALUE}"
+
+        return True, "OK"
 
     def _set_reconcile_block(self, blocked: bool):
         """Set/clear the per-user reconcile-block flag the scheduler reads to halt
