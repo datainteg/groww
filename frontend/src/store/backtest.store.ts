@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { backtestApi } from '../api'
 import type { BacktestConfig, BacktestRun, BacktestTrade, BacktestEquity } from '../types'
 
-export type BacktestTab = 'run' | 'results' | 'runs' | 'compare' | 'calibration'
+export type BacktestTab = 'run' | 'results' | 'runs' | 'compare' | 'walkforward' | 'calibration'
 
 interface BacktestState {
   runs: BacktestRun[]

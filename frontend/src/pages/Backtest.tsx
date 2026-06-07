@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FlaskConical, Play, RefreshCw, AlertTriangle, CheckCircle2, XCircle, BarChart3, Activity, GitCompare, Brain } from 'lucide-react'
+import { FlaskConical, Play, RefreshCw, AlertTriangle, CheckCircle2, XCircle, BarChart3, Activity, GitCompare, Brain, Repeat } from 'lucide-react'
 import { useBacktestStore, useUIStore } from '../store'
 import { backtestApi } from '../api'
 import { EquityCurveChart, DailyPnlChart } from '../components/backtest/BacktestCharts'
@@ -30,6 +30,7 @@ const TABS = [
   { id: 'results', label: 'Results', icon: BarChart3 },
   { id: 'runs', label: 'Runs', icon: Activity },
   { id: 'compare', label: 'Compare', icon: GitCompare },
+  { id: 'walkforward', label: 'Walk-Forward', icon: Repeat },
   { id: 'calibration', label: 'Calibration', icon: Brain },
 ] as const
 
@@ -180,6 +181,11 @@ export default function Backtest() {
             {equity?.daily_pnl?.length ? <DailyPnlChart daily={equity.daily_pnl} /> : <Empty msg="No daily data" />}
           </Panel>
 
+          <div className="grid gap-4 md:grid-cols-2">
+            <Panel title="By market regime"><Breakdown data={m.by_regime} /></Panel>
+            <Panel title="By confidence bucket"><Breakdown data={m.by_confidence_bucket} /></Panel>
+          </div>
+
           <Panel title={`Trades (${trades.length})`}>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -235,6 +241,9 @@ export default function Backtest() {
 
       {/* ---------- COMPARE ---------- */}
       {activeTab === 'compare' && <CompareTab runs={runs} />}
+
+      {/* ---------- WALK-FORWARD ---------- */}
+      {activeTab === 'walkforward' && <WalkForwardTab cfg={cfg} />}
 
       {/* ---------- CALIBRATION ---------- */}
       {activeTab === 'calibration' && <CalibrationTab />}
@@ -312,6 +321,95 @@ function CompareTab({ runs }: { runs: any[] }) {
             </table>
           </div>
         </Panel>
+      )}
+    </div>
+  )
+}
+
+function Breakdown({ data }: { data?: Record<string, any> }) {
+  const entries = Object.entries(data || {})
+  if (!entries.length) return <Empty msg="No data" />
+  return (
+    <div className="space-y-2">
+      {entries.map(([k, v]: any) => (
+        <div key={k} className="text-xs">
+          <div className="flex justify-between mb-0.5">
+            <span className="text-gray-700 dark:text-dark-300 font-medium">{k}</span>
+            <span className="text-gray-500 dark:text-dark-400">{v.count} · exp {inr(v.expectancy)}</span>
+          </div>
+          <div className="h-1.5 rounded bg-gray-100 dark:bg-dark-800 overflow-hidden">
+            <div className="h-full bg-primary-500" style={{ width: `${Math.round((v.win_rate || 0) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function WalkForwardTab({ cfg }: { cfg: BacktestConfig }) {
+  const { addToast } = useUIStore()
+  const [train, setTrain] = useState(500)
+  const [test, setTest] = useState(100)
+  const [step, setStep] = useState<number | ''>('')
+  const [busy, setBusy] = useState(false)
+  const [wf, setWf] = useState<any>(null)
+  const run = async () => {
+    setBusy(true)
+    try {
+      const res = await backtestApi.walkForward({ ...cfg, train_bars: train, test_bars: test, step_bars: step || undefined })
+      setWf(res)
+      if (!res.ok) addToast('error', res.reason || 'Walk-forward produced no windows')
+    } catch (e: any) { addToast('error', e.response?.data?.error || 'Walk-forward failed') }
+    finally { setBusy(false) }
+  }
+  const pooled = wf?.pooled || {}
+  return (
+    <div className="space-y-4">
+      <Panel title="Walk-forward (rolling out-of-sample)" action={
+        <button onClick={run} disabled={busy} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+          {busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Repeat className="w-3 h-3" />} Run
+        </button>}>
+        <p className="text-xs text-gray-500 dark:text-dark-400 mb-3">Uses {cfg.symbol} · {cfg.timeframe}m with the current Run params. Metrics are computed only on data the fitter never saw.</p>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Train bars"><input type="number" className="input-field" value={train} onChange={(e) => setTrain(+e.target.value)} /></Field>
+          <Field label="Test bars"><input type="number" className="input-field" value={test} onChange={(e) => setTest(+e.target.value)} /></Field>
+          <Field label="Step (opt)"><input type="number" className="input-field" value={step} onChange={(e) => setStep(e.target.value ? +e.target.value : '')} /></Field>
+        </div>
+      </Panel>
+      {wf?.ok && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={wf.overfit_warning ? 'neg' : 'pos'}>{wf.overfit_warning ? 'OVERFIT WARNING' : 'OOS STABLE'}</Badge>
+            <span className="text-xs text-gray-500 dark:text-dark-400">stability {num(wf.stability_score)} · {wf.n_windows} windows · {wf.n_trades} OOS trades</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <MetricCard label="Pooled net" value={inr(pooled.total_net)} tone={Number(pooled.total_net) >= 0 ? 'pos' : 'neg'} />
+            <MetricCard label="Pooled win%" value={pct(pooled.win_rate)} />
+            <MetricCard label="Pooled expectancy" value={inr(pooled.expectancy)} tone={Number(pooled.expectancy) >= 0 ? 'pos' : 'neg'} />
+            <MetricCard label="Pooled PF" value={num(pooled.profit_factor)} />
+          </div>
+          <Panel title="Per-window OOS">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-gray-500 dark:text-dark-400 border-b border-gray-200 dark:border-dark-700">
+                  {['#', 'Test bars', 'Trades', 'Win%', 'Expectancy', 'Net'].map((h) => <th key={h} className="px-2 py-2">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {(wf.windows || []).map((w: any) => (
+                    <tr key={w.index} className="border-b border-gray-100 dark:border-dark-800">
+                      <td className="px-2 py-1.5">{w.index + 1}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{w.test_start}–{w.test_end}</td>
+                      <td className="px-2 py-1.5">{w.n_trades}</td>
+                      <td className="px-2 py-1.5">{pct(w.metrics?.win_rate)}</td>
+                      <td className="px-2 py-1.5">{inr(w.metrics?.expectancy)}</td>
+                      <td className={`px-2 py-1.5 font-semibold ${Number(w.metrics?.total_net) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{inr(w.metrics?.total_net)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </>
       )}
     </div>
   )

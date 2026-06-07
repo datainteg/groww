@@ -82,7 +82,7 @@ from . import cost_model
 from . import metrics
 from utils.position_sizing import position_size
 
-__all__ = ["run_backtest", "DecisionFn"]
+__all__ = ["run_backtest", "run_option_premium_backtest", "DecisionFn"]
 
 # A decision function receives the closed-candle history (oldest -> newest, the
 # last element being the most recently *closed* bar) and returns at least a
@@ -416,6 +416,126 @@ def run_backtest(
             brokerage_per_order=brokerage_per_order,
         )
         open_trade = None
+
+    result = metrics.compute_metrics(trades)
+    result["trades"] = trades
+    return result
+
+
+def _close_option_trade(trades, ot, exit_premium, reason, exit_bar, exit_time,
+                        slippage_pct, brokerage_per_order):
+    """Finalize a long-option trade using REAL option premiums (OPTION_PREMIUM mode)."""
+    entry_premium = ot["entry_premium"]
+    pnl = cost_model.net_pnl(
+        entry_premium=entry_premium, exit_premium=float(exit_premium),
+        qty=ot["qty"], slippage_pct=slippage_pct, brokerage_per_order=brokerage_per_order,
+    )
+    rec = {
+        "direction": ot["direction"], "option_type": ot.get("option_type"),
+        "confidence": ot["confidence"],
+        "entry_premium": entry_premium, "exit_premium": float(exit_premium),
+        "entry_bar": ot["entry_bar"], "exit_bar": int(exit_bar),
+        "entry_time": ot["entry_time"], "exit_time": exit_time,
+        "lots": ot["lots"], "qty": ot["qty"], "exit_reason": reason,
+        "gross": pnl["gross"], "charges": pnl["charges"],
+        "slippage": pnl["slippage"], "net": pnl["net"],
+        "signal_meta": ot["signal_meta"],
+    }
+    regime = ot["signal_meta"].get("regime")
+    if isinstance(regime, str) and regime.strip():
+        rec["regime"] = regime
+    trades.append(rec)
+
+
+def run_option_premium_backtest(
+    index_candles: List[Dict[str, Any]],
+    option_candles: List[Dict[str, Any]],
+    decision_fn: DecisionFn,
+    option_type: str,
+    *,
+    lot_size: int,
+    capital: float = 1_000_000.0,
+    risk_pct: float = 0.01,
+    sl_points: float,
+    target_points: float,
+    slippage_pct: float = 0.0005,
+    brokerage_per_order: float = 20.0,
+) -> Dict[str, Any]:
+    """Dual-series OPTION_PREMIUM backtest.
+
+    Decisions are made on the **index** candle history (identical to live), but
+    fills, SL/target and P&L use the **chosen option's REAL premium candles**
+    (aligned by timestamp). The position is always LONG the option (a CE for a
+    BULLISH index signal, a PE for a BEARISH one); ``sl_points`` / ``target_points``
+    are interpreted as **premium points**. No look-ahead: an entry decided on the
+    close of index bar ``i`` fills at the option's bar-``i+1`` open. Pessimistic
+    intrabar tie-break (stop first)."""
+    trades: List[Dict[str, Any]] = []
+    want = "BULLISH" if str(option_type).upper().startswith("C") else "BEARISH"
+    opt_by_ts = {}
+    for c in option_candles:
+        ts = _bar_time(c)
+        if ts is not None:
+            opt_by_ts[ts] = c
+
+    n = len(index_candles)
+    if n < 2 or not isinstance(lot_size, int) or lot_size <= 0:
+        result = metrics.compute_metrics(trades)
+        result["trades"] = trades
+        return result
+
+    open_trade: Optional[Dict[str, Any]] = None
+    for i in range(n - 1):
+        cur_ts = _bar_time(index_candles[i])
+
+        if open_trade is not None and i > open_trade["entry_bar"]:
+            ob = opt_by_ts.get(cur_ts)
+            if ob is not None:
+                hi, lo = _bar_high(ob), _bar_low(ob)
+                if hi is not None and lo is not None:
+                    stop, tgt = open_trade["stop_price"], open_trade["target_price"]
+                    if lo <= stop:  # pessimistic: stop first
+                        _close_option_trade(trades, open_trade, stop, "SL", i, cur_ts,
+                                            slippage_pct, brokerage_per_order)
+                        open_trade = None
+                    elif hi >= tgt:
+                        _close_option_trade(trades, open_trade, tgt, "TARGET", i, cur_ts,
+                                            slippage_pct, brokerage_per_order)
+                        open_trade = None
+
+        if open_trade is None:
+            try:
+                decision = decision_fn(index_candles[: i + 1])
+            except Exception:
+                decision = None
+            if isinstance(decision, dict) and _normalise_signal(decision.get("signal")) == want:
+                fill_ts = _bar_time(index_candles[i + 1])
+                ob = opt_by_ts.get(fill_ts)
+                entry_prem = _bar_open(ob) if ob is not None else None
+                if entry_prem is not None and entry_prem > 0:
+                    sized = position_size(capital=capital, risk_pct=risk_pct,
+                                          sl_points=sl_points, lot_size=lot_size)
+                    if sized["lots"] > 0:
+                        open_trade = {
+                            "direction": want, "option_type": option_type,
+                            "confidence": _normalise_confidence(decision.get("confidence")),
+                            "entry_premium": float(entry_prem),
+                            "entry_bar": i + 1, "entry_time": fill_ts,
+                            "qty": sized["quantity"], "lots": sized["lots"],
+                            "stop_price": float(entry_prem - sl_points),
+                            "target_price": float(entry_prem + target_points),
+                            "signal_meta": {k: v for k, v in decision.items()
+                                            if k not in ("signal", "confidence")},
+                        }
+
+    if open_trade is not None:
+        last_ts = _bar_time(index_candles[n - 1])
+        ob = opt_by_ts.get(last_ts)
+        exit_prem = _bar_close(ob) if ob is not None else open_trade["entry_premium"]
+        if exit_prem is None:
+            exit_prem = open_trade["entry_premium"]
+        _close_option_trade(trades, open_trade, exit_prem, "EOD", n - 1, last_ts,
+                            slippage_pct, brokerage_per_order)
 
     result = metrics.compute_metrics(trades)
     result["trades"] = trades

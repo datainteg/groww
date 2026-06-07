@@ -111,12 +111,6 @@ class _FakeDB:
         return True
 
 
-def test_runner_option_premium_fails(monkeypatch):
-    monkeypatch.setattr(R, 'db', _FakeDB())
-    res = R.run_backtest_for_user('u', {'symbol': 'NIFTY', 'mode': 'OPTION_PREMIUM'})
-    assert res['status'] == 'FAILED' and 'OPTION_PREMIUM' in res['error']
-
-
 def test_runner_insufficient_data(monkeypatch):
     monkeypatch.setattr(R, 'db', _FakeDB())
     monkeypatch.setattr(R, '_load_candles', lambda *a, **k: [])
@@ -155,3 +149,30 @@ def test_calibrate_insufficient_samples(monkeypatch):
     monkeypatch.setattr(R, 'db', _FakeDB())
     res = R.calibrate_model(min_samples=50)
     assert res['success'] is False and 'Not enough' in res['reason']
+
+
+def test_option_premium_requires_symbol(monkeypatch):
+    monkeypatch.setattr(R, 'db', _FakeDB())
+    monkeypatch.setattr(R, '_load_candles', lambda *a, **k: _ramp(50))
+    res = R.run_backtest_for_user('u', {'symbol': 'NIFTY', 'mode': 'OPTION_PREMIUM'})
+    assert res['status'] == 'FAILED' and 'option_symbol' in res['error']
+
+
+def test_option_premium_missing_candles(monkeypatch):
+    monkeypatch.setattr(R, 'db', _FakeDB())
+    monkeypatch.setattr(R, '_load_candles', lambda sym, iv, s, e: _ramp(50) if sym == 'NIFTY' else [])
+    monkeypatch.setattr(R, 'analyze_market', lambda df, sym: {'signal': 'BULLISH', 'confidence': 0.9})
+    res = R.run_backtest_for_user('u', {'symbol': 'NIFTY', 'mode': 'OPTION_PREMIUM',
+                                        'option_symbol': 'NIFTY25000CE'})
+    assert res['status'] == 'FAILED' and 'option-premium candles' in res['error'].lower()
+
+
+def test_option_premium_happy(monkeypatch):
+    monkeypatch.setattr(R, 'db', _FakeDB())
+    monkeypatch.setattr(R, '_load_candles', lambda sym, iv, s, e: _ramp(50))  # index + option aligned by ts
+    monkeypatch.setattr(R, 'analyze_market',
+                        lambda df, sym: {'signal': 'BULLISH', 'confidence': 0.9, 'market_regime': 'TRENDING'})
+    res = R.run_backtest_for_user('u', {'symbol': 'NIFTY', 'mode': 'OPTION_PREMIUM',
+                                        'option_symbol': 'NIFTY25000CE',
+                                        'parameters': {'sl_points': 5, 'target_points': 5}})
+    assert res['status'] == 'COMPLETED'

@@ -118,25 +118,13 @@ def run_backtest_for_user(user_id: str, config: Dict[str, Any]) -> Dict[str, Any
         'status': 'RUNNING', 'started_at': datetime.utcnow(),
     })
 
+    def _fail(err):
+        db.update_backtest_run(run_id, {'status': 'FAILED', 'finished_at': datetime.utcnow(), 'error': err})
+        return {'run_id': run_id, 'status': 'FAILED', 'error': err}
+
     try:
-        if mode == 'OPTION_PREMIUM':
-            err = ('OPTION_PREMIUM mode needs per-strike option-premium candles, which '
-                   'are not stored yet. Use INDEX_PROXY for directional validation only.')
-            db.update_backtest_run(run_id, {'status': 'FAILED',
-                                            'finished_at': datetime.utcnow(), 'error': err})
-            return {'run_id': run_id, 'status': 'FAILED', 'error': err}
-
-        candles = _load_candles(symbol, interval, start_epoch, end_epoch)
-        if len(candles) < 2:
-            err = (f'Not enough candle data for {symbol} {interval}m in the selected range '
-                   f'(need >= 2, got {len(candles)}). Sync candles first.')
-            db.update_backtest_run(run_id, {'status': 'FAILED',
-                                            'finished_at': datetime.utcnow(), 'error': err})
-            return {'run_id': run_id, 'status': 'FAILED', 'error': err}
-
         decision_fn = make_decision_fn(symbol, params)
-        result = bt_engine.run_backtest(
-            candles, decision_fn,
+        common = dict(
             lot_size=int(risk.get('lot_size', 50)),
             capital=float(risk.get('capital', 1_000_000)),
             risk_pct=float(risk.get('risk_pct', 0.01)),
@@ -145,6 +133,26 @@ def run_backtest_for_user(user_id: str, config: Dict[str, Any]) -> Dict[str, Any
             slippage_pct=float(costs.get('slippage_pct', 0.0005)),
             brokerage_per_order=float(costs.get('brokerage_per_order', 20)),
         )
+
+        index_candles = _load_candles(symbol, interval, start_epoch, end_epoch)
+        if len(index_candles) < 2:
+            return _fail(f'Not enough index candle data for {symbol} {interval}m in the selected '
+                         f'range (need >= 2, got {len(index_candles)}). Sync candles first.')
+
+        if mode == 'OPTION_PREMIUM':
+            option_symbol = config.get('option_symbol')
+            if not option_symbol:
+                return _fail("OPTION_PREMIUM requires 'option_symbol' (the strike's trading symbol).")
+            option_candles = _load_candles(option_symbol, interval, start_epoch, end_epoch)
+            if len(option_candles) < 2:
+                return _fail(f"No option-premium candles for {option_symbol} {interval}m. Sync them "
+                             f"first (POST /api/strategy/candles/{option_symbol}/sync) or use INDEX_PROXY.")
+            option_type = config.get('option_type') or ('CE' if str(option_symbol).upper().endswith('CE') else 'PE')
+            result = bt_engine.run_option_premium_backtest(
+                index_candles, option_candles, decision_fn, option_type, **common)
+        else:
+            result = bt_engine.run_backtest(index_candles, decision_fn, **common)
+
         trades = result.pop('trades', [])
         db.save_backtest_trades(run_id, trades)
         db.save_backtest_report(run_id, {'metrics': result, 'mode': mode,
