@@ -36,12 +36,15 @@ const formatTimeIST = (timestamp: number) => {
 
 export default function Charts() {
   // --- Stores & State ---
-  const { decision, fetchDecision } = useStrategyStore()
+  const { decisions, fetchDecision } = useStrategyStore()
   const { directions, fetchDirection } = useDirectionStore()
   const { addToast } = useUIStore()
   
   const [symbol, setSymbol] = useState('NIFTY')
   const [interval, setInterval] = useState('5')
+  // Read THIS chart's symbol decision from the per-symbol map so another page
+  // fetching a different symbol can't swap our signal (shared field race).
+  const decision = decisions[symbol] || null
   const [candles, setCandles] = useState<Candle[]>([])
   const [loading, setLoading] = useState(false)
   

@@ -219,7 +219,7 @@ const DirectionAnalysisContent = ({
 export default function Dashboard() {
   // Store Hooks
   const { marketStatus, indices, fetchIndices } = useMarketStore()
-  const { strategies, engineStatus, decision, fetchStrategies, fetchEngineStatus, fetchDecision, startStrategy, stopStrategy } = useStrategyStore()
+  const { strategies, engineStatus, decisions, fetchStrategies, fetchEngineStatus, fetchDecision, startStrategy, stopStrategy } = useStrategyStore()
   const { dailyPnl, activeTrades, fetchDailyPnl, fetchActiveTrades } = useTradeStore()
   const { settings, addToast } = useUIStore()
   const { directions, fetchAllDirections, fetchDirection } = useDirectionStore()
@@ -228,6 +228,9 @@ export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(getISTString())
   const [refreshing, setRefreshing] = useState(false)
   const [analysisSymbol, setAnalysisSymbol] = useState<string>('NIFTY')
+  // Read the selected symbol's decision from the per-symbol map (not the shared
+  // field, which another page could overwrite with a different symbol).
+  const decision = decisions[analysisSymbol] || null
   const [showDirectionModal, setShowDirectionModal] = useState(false)
   
   // CHANGED: Instead of storing the full object, store the Symbol. 
