@@ -42,6 +42,7 @@ export default function Backtest() {
   const [cfg, setCfg] = useState<BacktestConfig>({
     symbol: 'NIFTY', timeframe: '5', mode: 'INDEX_PROXY',
     start_date: '', end_date: '',
+    option_symbol: '', option_type: 'CE',
     parameters: { sl_points: 20, target_points: 40, min_confidence: 0.5 },
     risk: { lot_size: 50, capital: 1000000, risk_pct: 0.01 },
     costs: { slippage_pct: 0.0005, brokerage_per_order: 20 },
@@ -58,6 +59,10 @@ export default function Backtest() {
   const edgePass = (Number(m.expectancy) > 0) && (Number(m.profit_factor) > 1)
 
   const onRun = async () => {
+    if (cfg.mode === 'OPTION_PREMIUM' && !cfg.option_symbol?.trim()) {
+      addToast('error', 'Enter the option symbol (e.g. NIFTY25JAN23000CE) for OPTION_PREMIUM mode')
+      return
+    }
     const id = await runBacktest(cfg)
     if (id) addToast('success', 'Backtest complete')
   }
@@ -120,6 +125,30 @@ export default function Backtest() {
                 </select>
               </Field>
             </div>
+
+            {cfg.mode === 'OPTION_PREMIUM' && (
+              <div className="space-y-2 rounded-lg border border-cyan-200 dark:border-cyan-500/20 bg-cyan-50 dark:bg-cyan-500/5 p-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-2">
+                    <Field label="Option symbol">
+                      <input className="input-field" value={cfg.option_symbol || ''} placeholder="e.g. NIFTY25JAN23000CE"
+                        onChange={(e) => setCfg({ ...cfg, option_symbol: e.target.value.trim().toUpperCase() })} />
+                    </Field>
+                  </div>
+                  <Field label="Type">
+                    <select className="input-field" value={cfg.option_type || 'CE'} onChange={(e) => setCfg({ ...cfg, option_type: e.target.value as 'CE' | 'PE' })}>
+                      <option value="CE">CE</option>
+                      <option value="PE">PE</option>
+                    </select>
+                  </Field>
+                </div>
+                <p className="text-[11px] text-cyan-700 dark:text-cyan-300">
+                  OPTION_PREMIUM needs that strike's <b>real candles synced</b> first
+                  (<span className="font-mono">POST /api/strategy/candles/&lt;symbol&gt;/sync</span>). If not synced,
+                  the run fails with a clear message — use Index Proxy for directional validation.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl bg-white dark:bg-dark-900 border border-gray-200 dark:border-dark-700 p-4 space-y-3">

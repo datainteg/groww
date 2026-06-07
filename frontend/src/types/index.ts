@@ -468,6 +468,8 @@ export interface BacktestConfig {
   start_date?: string
   end_date?: string
   mode: BacktestMode
+  option_symbol?: string
+  option_type?: 'CE' | 'PE'
   strategy_id?: string
   parameters?: Record<string, any>
   risk?: Record<string, any>
