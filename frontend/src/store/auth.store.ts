@@ -13,6 +13,7 @@ interface AuthState {
   logout: () => Promise<void>
   fetchUser: () => Promise<void>
   updateProfile: (data: Partial<User>) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   updateGrowwCredentials: (apiKey: string, apiSecret: string) => Promise<void>
   clearError: () => void
   initialize: () => void
@@ -96,6 +97,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const updatedUser = { ...get().user, ...response.profile } as User
       localStorage.setItem('user', JSON.stringify(updatedUser))
       set({ user: updatedUser, isLoading: false })
+    } catch (err: any) {
+      set({ isLoading: false, error: err.error })
+      throw err
+    }
+  },
+
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    set({ isLoading: true })
+    try {
+      await authApi.updateProfile({ current_password: currentPassword, new_password: newPassword } as any)
+      set({ isLoading: false })
+      // Refresh /me so must_change_password clears and the gate lifts.
+      await get().fetchUser()
     } catch (err: any) {
       set({ isLoading: false, error: err.error })
       throw err

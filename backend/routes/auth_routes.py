@@ -200,7 +200,8 @@ def login():
             'id': user_id,
             'email': user['email'],
             'broker_connected': user.get('broker_connected', False),
-            'execution_mode': user.get('execution_mode', 'PAPER')
+            'execution_mode': user.get('execution_mode', 'PAPER'),
+            'must_change_password': user.get('must_change_password', False)
         }
     })
 
@@ -234,6 +235,7 @@ def get_current_user():
         'token_expiry': user.get('groww_token_expiry'),
         'token_valid': token_valid,
         'needs_groww_refresh': needs_groww_refresh,
+        'must_change_password': user.get('must_change_password', False),
     })
 
 
@@ -308,14 +310,17 @@ def update_profile():
     
     # Update password if provided
     if data.get('new_password'):
+        if len(data['new_password']) < _MIN_PASSWORD_LEN:
+            return jsonify({'error': f'Password must be at least {_MIN_PASSWORD_LEN} characters'}), 400
         if not data.get('current_password'):
             return jsonify({'error': 'Current password required'}), 400
-        
+
         user = db.get_user_by_id(user_id)
         if not check_password_hash(user['password'], data['current_password']):
             return jsonify({'error': 'Current password incorrect'}), 400
-        
+
         update_data['password'] = generate_password_hash(data['new_password'])
+        update_data['must_change_password'] = False  # first-login change satisfied
     
     if update_data:
         db.update_user(user_id, update_data)

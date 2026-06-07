@@ -5,6 +5,7 @@ import BottomNav from './BottomNav'
 import Header from './Header'
 import Toast from '../common/Toast'
 import GrowwTokenBanner from '../common/GrowwTokenBanner'
+import ForceChangePassword from '../common/ForceChangePassword'
 import { useUIStore, useMarketStore, useStrategyStore, useTradeStore } from '../../store'
 import { config } from '../../config'
 
@@ -91,6 +92,9 @@ export default function Layout() {
 
       {/* Mobile bottom tab bar */}
       <BottomNav />
+
+      {/* First-login forced password change (blocks the app until done) */}
+      <ForceChangePassword />
 
       {/* Toast Notifications */}
       <Toast />

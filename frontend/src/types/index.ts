@@ -9,6 +9,7 @@ export interface User {
   token_expiry?: string
   token_valid?: boolean
   needs_groww_refresh?: boolean
+  must_change_password?: boolean
   created_at?: string
 }
 
