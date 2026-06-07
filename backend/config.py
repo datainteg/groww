@@ -104,6 +104,11 @@ class Config:
         if is_live and (not cors.strip() or 'localhost' in cors):
             problems.append('CORS_ORIGINS must be set to non-localhost origins in LIVE mode')
 
+        # LIVE needs Redis configured (trade lock + scheduler leader election are
+        # fail-closed at runtime; this is the startup fail-fast for it).
+        if is_live and not str(os.getenv('REDIS_HOST', '')).strip():
+            problems.append('REDIS_HOST must be configured in LIVE mode (locks + leader election)')
+
         # Refuse to start when secrets are weak in any non-DEBUG run, and always in LIVE.
         if problems and (is_live or not self.DEBUG):
             raise RuntimeError(

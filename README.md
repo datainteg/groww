@@ -121,6 +121,15 @@ token-health, calibrated regime-aware signal fusion, live-order safety, a pytest
 cost-aware backtest engine. Accuracy work is gated on out-of-sample backtest expectancy before
 any live trading.
 
+- **Backtesting Machine** (Backtest Lab) — INDEX_PROXY + OPTION_PREMIUM, walk-forward, verdict.
+- **Safety Center** — execution mode, kill switch, token/feed/reconciliation/scheduler status.
+- **LIVE auto-trading is disabled by default** and gated on the full safety checklist.
+- Operations: [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) ·
+  [docs/LIVE_TRADING_CHECKLIST.md](docs/LIVE_TRADING_CHECKLIST.md)
+
+Commands: backend `cd backend && python app.py` · scheduler `python run_scheduler.py` ·
+tests `python -m pytest` · frontend `cd frontend && npm run build` (or `npm run dev`).
+
 ## Security notes
 - Never commit `.env` / tokens. `.gitignore` covers them; a pre-existing leaked key in git
   history must be **rotated** at the broker.
