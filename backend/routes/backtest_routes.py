@@ -12,7 +12,8 @@ from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from database import db
-from backtest.runner import run_backtest_for_user
+from backtest.runner import (run_backtest_for_user, run_walk_forward_for_user,
+                             calibrate_model, calibration_status)
 
 backtest_bp = Blueprint('backtest', __name__, url_prefix='/api/backtest')
 
@@ -109,6 +110,31 @@ def cancel_run(run_id):
         return jsonify({'status': 'CANCELLED'})
     return jsonify({'status': run.get('status'),
                     'message': 'Not cancellable (already finished; synchronous execution).'})
+
+
+@backtest_bp.route('/walk-forward', methods=['POST'])
+@jwt_required()
+def walk_forward_route():
+    user_id = get_jwt_identity()
+    cfg = request.get_json(force=True, silent=True) or {}
+    if not (cfg.get('symbol') or cfg.get('index')):
+        return jsonify({'error': 'symbol/index is required'}), 400
+    return jsonify(run_walk_forward_for_user(user_id, cfg))
+
+
+@backtest_bp.route('/calibrate', methods=['POST'])
+@jwt_required()
+def calibrate():
+    data = request.get_json(force=True, silent=True) or {}
+    min_samples = int(data.get('min_samples', 50))
+    result = calibrate_model(min_samples=min_samples)
+    return jsonify(result), (200 if result.get('success') else 400)
+
+
+@backtest_bp.route('/calibration/status', methods=['GET'])
+@jwt_required()
+def calibration_status_route():
+    return jsonify(calibration_status())
 
 
 @backtest_bp.route('/compare', methods=['POST'])

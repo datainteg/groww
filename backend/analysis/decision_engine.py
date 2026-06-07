@@ -233,6 +233,12 @@ class DecisionEngine:
                 "timestamp": get_ist_now().isoformat()
             }
 
+            # Persist the exact feature vector so calibration trains on the SAME
+            # features the live p_win uses (logged into signal_log, labeled later).
+            result["calibration_features"] = [
+                float(confidence), float(bullish_score), float(bearish_score), float(net),
+            ]
+
             # --- Feature-flagged: calibrated P(win) via Calibrator model ---
             # Exposed as an EXTRA field 'p_win' only when the model is loaded
             # and fitted.  The existing 'confidence' gate is NEVER modified.

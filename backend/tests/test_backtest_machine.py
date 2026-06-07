@@ -84,9 +84,15 @@ def test_decision_fn_threshold(monkeypatch):
     assert passed['signal'] == 'BULLISH' and passed['regime'] == 'TRENDING'
 
 
+class _EmptyColl:
+    def find(self, *a, **k):
+        return []
+
+
 class _FakeDB:
     def __init__(self):
         self.runs, self.trades, self.reports = {}, {}, {}
+        self.signal_log = _EmptyColl()
 
     def create_backtest_run(self, d):
         self.runs[d['run_id']] = d
@@ -132,3 +138,20 @@ def test_runner_happy_path_persists(monkeypatch):
     assert fake.runs[rid]['status'] == 'COMPLETED'
     assert rid in fake.reports and 'metrics' in fake.reports[rid]
     assert 'summary' in res and res['summary']['count'] >= 0
+
+
+def test_walk_forward_runner(monkeypatch):
+    monkeypatch.setattr(R, '_load_candles', lambda *a, **k: _ramp(300))
+    monkeypatch.setattr(R, 'analyze_market',
+                        lambda df, sym: {'signal': 'BULLISH', 'confidence': 0.9,
+                                         'market_regime': 'TRENDING'})
+    wf = R.run_walk_forward_for_user('u', {'symbol': 'NIFTY', 'train_bars': 100, 'test_bars': 50,
+                                           'parameters': {'sl_points': 5, 'target_points': 5}})
+    assert wf['ok'] is True and wf['n_windows'] >= 1
+    assert 'stability_score' in wf and 'overfit_warning' in wf and 'pooled' in wf
+
+
+def test_calibrate_insufficient_samples(monkeypatch):
+    monkeypatch.setattr(R, 'db', _FakeDB())
+    res = R.calibrate_model(min_samples=50)
+    assert res['success'] is False and 'Not enough' in res['reason']
