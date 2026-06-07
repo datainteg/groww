@@ -8,6 +8,7 @@ export interface User {
   groww_api_key_masked?: string
   token_expiry?: string
   token_valid?: boolean
+  needs_groww_refresh?: boolean
   created_at?: string
 }
 

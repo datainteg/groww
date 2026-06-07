@@ -31,6 +31,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         const user = JSON.parse(userStr)
         set({ user, isAuthenticated: true })
+        // Refresh from /me so Groww token freshness (needs_groww_refresh) is current.
+        get().fetchUser()
       } catch {
         localStorage.removeItem('access_token')
         localStorage.removeItem('user')
@@ -45,6 +47,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.setItem('access_token', response.access_token)
       localStorage.setItem('user', JSON.stringify(response.user))
       set({ user: response.user, isAuthenticated: true, isLoading: false })
+      // Pull full status (token freshness) so the Groww-refresh prompt can show.
+      get().fetchUser()
     } catch (err: any) {
       set({ isLoading: false, error: err.error || 'Login failed' })
       throw err
@@ -105,6 +109,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const updatedUser = { ...get().user, broker_connected: response.broker_connected } as User
       localStorage.setItem('user', JSON.stringify(updatedUser))
       set({ user: updatedUser, isLoading: false })
+      // Refresh token freshness so the daily-refresh prompt clears immediately.
+      get().fetchUser()
     } catch (err: any) {
       set({ isLoading: false, error: err.error })
       throw err

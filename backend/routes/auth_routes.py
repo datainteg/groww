@@ -14,6 +14,11 @@ from datetime import datetime
 from database import db, redis_client
 from config import config
 from utils import encryption
+# IST-aware token expiry (Groww tokens expire ~6 AM IST daily).
+from utils.time_utils import (
+    get_token_expiry_time as _groww_expiry_time,
+    is_token_expired as _is_token_expired,
+)
 # Import GrowwClient to verify credentials immediately
 from services.groww_client import GrowwClient
 
@@ -185,13 +190,30 @@ def get_current_user():
     
     if not user:
         return jsonify({'error': 'User not found'}), 404
-    
+
+    # Groww token freshness (tokens expire ~6 AM IST daily). The UI uses this to
+    # prompt a re-connect and to flag that it is showing older/stale data.
+    broker = user.get('broker_connected', False)
+    expiry = user.get('groww_token_expiry')
+    has_token = bool(user.get('groww_access_token'))
+    token_valid = False
+    if broker and has_token and expiry:
+        try:
+            exp_dt = datetime.fromisoformat(expiry) if isinstance(expiry, str) else expiry
+            token_valid = not _is_token_expired(exp_dt)
+        except Exception:
+            token_valid = False
+    needs_groww_refresh = bool(broker) and not token_valid
+
     return jsonify({
         'id': str(user['_id']),
         'email': user['email'],
-        'broker_connected': user.get('broker_connected', False),
+        'broker_connected': broker,
         'execution_mode': user.get('execution_mode', 'PAPER'),
-        'created_at': user.get('created_at').isoformat() if user.get('created_at') else None
+        'created_at': user.get('created_at').isoformat() if user.get('created_at') else None,
+        'token_expiry': expiry,
+        'token_valid': token_valid,
+        'needs_groww_refresh': needs_groww_refresh,
     })
 
 
@@ -296,10 +318,12 @@ def update_groww_credentials():
             access_token = token_response['token']
             encrypted_token = encryption.encrypt(access_token)
             
-            # Save the VALID token to DB
+            # Save the VALID token to DB, and record when it expires so the UI
+            # can prompt a daily refresh (Groww tokens die ~6 AM IST).
             db.update_user(user_id, {
                 "groww_access_token": encrypted_token,
-                "token_generated_at": datetime.utcnow()
+                "token_generated_at": datetime.utcnow(),
+                "groww_token_expiry": token_response.get('expiry') or _groww_expiry_time().isoformat()
             })
             print("✅ Access Token generated and saved successfully.")
             return jsonify({

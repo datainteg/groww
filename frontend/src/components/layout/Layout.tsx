@@ -4,6 +4,7 @@ import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import Header from './Header'
 import Toast from '../common/Toast'
+import GrowwTokenBanner from '../common/GrowwTokenBanner'
 import { useUIStore, useMarketStore, useStrategyStore, useTradeStore } from '../../store'
 import { config } from '../../config'
 
@@ -82,6 +83,8 @@ export default function Layout() {
 
         {/* Page Content (bottom padding clears the mobile tab bar) */}
         <main className="p-4 sm:p-6 pb-24 lg:pb-6 min-h-[calc(100vh-4rem)]">
+          {/* Daily Groww-token refresh prompt + stale-data banner */}
+          <GrowwTokenBanner />
           <Outlet />
         </main>
       </div>
