@@ -64,6 +64,7 @@ class SchedulerService:
         self.last_strategy_eval = None
         self.last_reconciliation = None
         self.last_blocked_reason = None
+        self.leadership_blocked_reason = None
 
     def _redis(self):
         """Return the raw redis client or None if unavailable."""
@@ -72,21 +73,46 @@ class SchedulerService:
     def _has_leadership(self) -> bool:
         return self.is_leader
 
+    def _live_mode_present(self) -> bool:
+        """True if the global mode is LIVE or any broker-connected user is LIVE."""
+        try:
+            if str(config.EXECUTION_MODE).upper() == 'LIVE':
+                return True
+            return db.users.count_documents({'execution_mode': 'LIVE', 'broker_connected': True}) > 0
+        except Exception:
+            return str(config.EXECUTION_MODE).upper() == 'LIVE'
+
     def _acquire_leadership(self) -> bool:
-        """Try to become the single scheduler leader. If Redis is unavailable
-        (e.g. local single-process dev), allow startup."""
+        """Become the single scheduler leader. LIVE fails CLOSED: if Redis is
+        unavailable or errors while any LIVE trading is present, do NOT lead (no
+        automated jobs). PAPER/dev fails open so a single process still runs."""
         client = self._redis()
+        live = self._live_mode_present()
+
         if not client:
+            if live:
+                self.is_leader = False
+                self.leadership_blocked_reason = 'Redis unavailable in LIVE — scheduler will not lead (fail-closed).'
+                print(f"[scheduler] {self.leadership_blocked_reason}")
+                return False
             self.is_leader = True
+            self.leadership_blocked_reason = None
             return True
         try:
             won = bool(client.set(self.LEADER_KEY, self.instance_id,
                                   nx=True, ex=self.LEADER_TTL))
             self.is_leader = won
+            self.leadership_blocked_reason = None if won else 'Another instance holds leadership.'
             return won
-        except Exception:
-            # Redis error: fail open in dev so the single process still runs.
+        except Exception as e:
+            if live:
+                self.is_leader = False
+                self.leadership_blocked_reason = f'Redis error in LIVE — scheduler will not lead: {e}'
+                print(f"[scheduler] {self.leadership_blocked_reason}")
+                return False
+            # PAPER/dev: fail open so the single process still runs.
             self.is_leader = True
+            self.leadership_blocked_reason = None
             return True
 
     def _renew_leadership(self) -> bool:
@@ -188,12 +214,17 @@ class SchedulerService:
 
     def get_status(self) -> dict:
         """Scheduler health snapshot for the API/health route."""
+        live = self._live_mode_present()
         return {
             'leader_status': bool(self.is_leader),
             'instance_id': self.instance_id,
             'running': bool(self.scheduler.running) if self.scheduler else False,
             'market_open': is_market_open(),
             'auto_trading_enabled': bool(config.AUTO_TRADING_ENABLED),
+            'redis_available': self._redis() is not None,
+            'leadership_blocked_reason': self.leadership_blocked_reason,
+            'scheduler_mode': 'LIVE' if live else 'PAPER',
+            'fail_policy': 'fail-closed' if live else 'fail-open',
             'last_candle_sync': self.last_candle_sync,
             'last_strategy_eval': self.last_strategy_eval,
             'last_reconciliation': self.last_reconciliation,
