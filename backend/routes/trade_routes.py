@@ -831,7 +831,44 @@ def reconciliation_status():
             latest = doc
     except Exception:
         pass
-    return jsonify({'reconcile_blocked': blocked, 'latest_mismatch': latest})
+    report = None
+    healthy = not blocked
+    try:
+        report = db.get_latest_reconciliation_report(user_id)
+        if report is not None:
+            healthy = bool(report.get('healthy', healthy))
+    except Exception:
+        pass
+    return jsonify({
+        'healthy': healthy,
+        'reconcile_blocked': blocked,
+        'latest_report': report,
+        'latest_mismatch': latest,
+    })
+
+
+@trade_bp.route('/reconciliation/run', methods=['POST'])
+@jwt_required()
+def reconciliation_run():
+    """Manually run reconciliation now (broker positions vs DB open trades)."""
+    user_id = get_jwt_identity()
+    try:
+        from services import get_trading_engine
+        execution_mode = get_user_execution_mode(user_id)
+        if execution_mode == 'PAPER':
+            broker = get_paper_broker(user_id)
+            positions = broker.get_positions()
+        else:
+            from services import get_groww_client
+            groww = get_groww_client(user_id)
+            if not groww:
+                return jsonify({'error': 'Broker not connected'}), 400
+            res = groww.get_positions()
+            positions = res.get('data', []) if isinstance(res, dict) else (res or [])
+        result = get_trading_engine(user_id).reconcile_positions(positions or [])
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @trade_bp.route('/exit-all', methods=['POST'])

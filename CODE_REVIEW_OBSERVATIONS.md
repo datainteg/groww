@@ -4,7 +4,7 @@ Date: 2026-06-07
 
 Scope: full repository review of the Flask backend, React/Vite frontend, configuration, tests, and runtime contracts. No application code was changed for this review.
 
-Working tree note: `backend/services/scheduler.py` was already modified in the working tree during review. This report treats that current working tree as the source of truth and leaves the file untouched.
+Repository state note: local `main` advanced while this review was being written. This report reflects the current HEAD observed during final verification: `8823fbe`.
 
 ## Validation Run
 
@@ -26,37 +26,38 @@ The largest gaps are around trade execution consistency, API contract drift, mul
 
 Top risks:
 
-1. Direct order placement can bypass the central safety gate and can create positions without local trade records.
+1. Direct order placement now has a BUY safety gate, but it can still create positions without local trade records.
 2. Manual `SELL` quick trades are recorded as new closed trades, not exits of existing open trades.
 3. LIVE exit execution can close a trade at price `0` when broker fill details are unavailable.
 4. Dynamic option-symbol lookup sorts by a field that does not exist in the instrument model.
 5. Several frontend API calls expect response shapes or routes that the backend does not provide.
 6. Admin/global endpoints are authenticated but not authorization protected.
-7. Scheduler and calibration logic are not safe for true multi-user operation yet.
+7. Scheduler and calibration logic still need stronger multi-user and reload guarantees.
 8. Dependency and lint hygiene are not at production standard.
 
 ## Critical And High Findings
 
-### 1. Direct place-order route bypasses central trade safety
+### 1. Direct place-order route still bypasses local trade lifecycle persistence
 
 Severity: Critical
 
 Evidence:
 
 - `backend/routes/trade_routes.py:208` to `backend/routes/trade_routes.py:258` implements `/api/trade/place-order`.
-- This route validates request shape and uses a short local lock, then directly calls `PaperBroker.place_order` or `GrowwAPIClient.place_order`.
-- It does not call `services.trade_safety.validate_trade_allowed`.
-- It does not create a local trade document after order placement.
-- The central gate exists at `backend/services/trade_safety.py:160` to `backend/services/trade_safety.py:212`.
+- The current HEAD does call `services.trade_safety.validate_trade_allowed` for `BUY` orders before locking.
+- The route still directly calls `PaperBroker.place_order` or `GrowwAPIClient.place_order`.
+- It still does not create or update a local trade document after order placement.
+- `SELL` orders are treated as broker passthrough exits and are not tied to a specific open local trade.
+- The central gate exists at `backend/services/trade_safety.py:165` to `backend/services/trade_safety.py:215`.
 - The main trading engine entry path does use that gate at `backend/services/trading_engine.py:364` to `backend/services/trading_engine.py:459`.
 
 Impact:
 
-Manual or API-driven orders can skip kill switch checks, data freshness checks, duplicate trade checks, daily limits, and strategy-level limits. In PAPER mode, the paper account position changes but the order list reads from the trade table, so positions and order history can disagree. In LIVE mode, a broker position can exist without a local trade row.
+Manual or API-driven orders can create broker or paper positions that are not represented in the local trade table. In PAPER mode, the paper account position changes but the order list reads from the trade table, so positions and order history can disagree. In LIVE mode, a broker position can exist without a local trade row and later reconciliation has to treat it as an unmanaged position.
 
 Recommendation:
 
-Make every order-entry path go through one execution service. Direct routes should either call the trading engine or the same central safety and persistence workflow. If the route is intended for broker passthrough only, label it clearly and exclude it from normal UI paths.
+Make every order-entry path go through one execution service. Direct routes should either call the trading engine or the same central safety, persistence, and reconciliation workflow. If the route is intended for broker passthrough only, label it clearly and exclude it from normal UI paths.
 
 ### 2. Manual quick-trade SELL creates an orphan closed trade instead of exiting an open trade
 
@@ -173,22 +174,22 @@ Recommendation:
 
 Set the lock TTL above the maximum broker operation window, or implement lock renewal/fencing. For LIVE trading, lock expiry should not be shorter than order placement plus persistence.
 
-### 8. Safety checks fail open in some exception paths
+### 8. Overall-limit safety check still fails open on exceptions
 
 Severity: High
 
 Evidence:
 
-- `backend/services/trade_safety.py:121` to `backend/services/trade_safety.py:136` returns "fresh" when the data freshness checker itself fails.
-- `backend/services/trade_safety.py:143` to `backend/services/trade_safety.py:150` returns overall-limit OK on database exceptions.
+- Current HEAD now fails closed for LIVE data-quality checker crashes at `backend/services/trade_safety.py:121` to `backend/services/trade_safety.py:141`.
+- `backend/services/trade_safety.py:148` to `backend/services/trade_safety.py:155` still returns overall-limit OK on database exceptions.
 
 Impact:
 
-In LIVE mode, failure of the safety checker can allow trades instead of blocking them. For trading safety, a broken safety check should usually fail closed.
+In LIVE mode, failure to read settings or active-trade state can allow trades instead of blocking them. For trading safety, a broken limit check should usually fail closed.
 
 Recommendation:
 
-Define fail-open versus fail-closed behavior per check. For LIVE execution, data freshness, kill switch, duplicate detection, and daily loss checks should fail closed unless there is a deliberate emergency override.
+Define fail-open versus fail-closed behavior per check. For LIVE execution, kill switch, duplicate detection, max open trades, and daily loss checks should fail closed unless there is a deliberate emergency override.
 
 ## Medium Findings
 
@@ -547,11 +548,11 @@ Existing tests cover many analytical and backtest units well enough for a protot
 3. The code already has a central safety service, kill switch concepts, paper/live mode separation, and config validation.
 4. Entry execution has pending reconciliation handling when LIVE fill price is missing.
 5. Mongo index setup and instrument staging show awareness of data integrity.
-6. Scheduler leadership in the current working tree appears to be moving toward LIVE fail-closed behavior when Redis is unavailable.
+6. Scheduler leadership in current HEAD fails closed for LIVE when Redis is unavailable or errors.
 
 ## Suggested Priority Order
 
-1. Fix trade execution consistency: direct order route, quick-trade SELL, LIVE exit price reconciliation, and lock TTL.
+1. Fix trade execution consistency: direct order persistence, quick-trade SELL, LIVE exit price reconciliation, and lock TTL.
 2. Fix dynamic option contract selection.
 3. Add authorization for global/admin endpoints.
 4. Decide and document single-user versus multi-user architecture.
@@ -559,4 +560,3 @@ Existing tests cover many analytical and backtest units well enough for a protot
 6. Clean dependency vulnerabilities and Python environment conflicts.
 7. Add integration tests around trading routes and scheduler behavior.
 8. Harden auth, secret handling, health endpoint exposure, and deployment docs.
-

@@ -773,36 +773,64 @@ class TradingEngine:
             if sym not in db_map:
                 mismatches.append({'type': 'broker_position_no_db', 'symbol': sym, 'db_qty': 0, 'broker_qty': bq})
 
-        if not mismatches:
-            self._set_reconcile_block(False)  # healthy -> clear any prior block
-            return {'success': True, 'healthy': True, 'mismatches': []}
+        # Duplicate DB open trades for the same strategy+symbol.
+        seen: Dict[tuple, int] = {}
+        for t in db_open:
+            key = (str(t.get('strategy_id')), _norm(t.get('trading_symbol') or t.get('symbol')))
+            seen[key] = seen.get(key, 0) + 1
+        for (sid, sym), n in seen.items():
+            if n > 1:
+                mismatches.append({'type': 'duplicate_db_open', 'symbol': sym, 'strategy_id': sid, 'count': n})
 
-        # MISMATCH: trip safety. Do NOT auto-correct.
-        print(f"[reconcile] MISMATCH user={self.user_id}: {mismatches}")
-        if self.execution_mode == 'LIVE':
-            try:
-                db.upsert_settings(self.user_id, {'kill_switch': True})
-            except Exception as e:
-                print(f"[reconcile] kill-switch set failed: {e}")
-            self._set_reconcile_block(True)
-
+        # Trades stuck in PENDING_RECONCILE (LIVE unconfirmed fills).
         try:
-            db.db['reconciliation_mismatch'].insert_one({
-                'user_id': self.user_id,
-                'mismatches': mismatches,
-                'execution_mode': self.execution_mode,
-                'created_at': get_ist_now(),
-            })
-        except Exception as e:
-            print(f"[reconcile] mismatch log failed: {e}")
-
-        try:
-            telegram_alert.send_kill_switch_alert(
-                f"Reconciliation mismatch ({len(mismatches)}) for {self.user_id}: {mismatches}")
+            pend = list(db.trades.find(
+                {'user_id': self.user_id, 'status': 'PENDING_RECONCILE'},
+                {'_id': 0, 'trading_symbol': 1, 'order_id': 1, 'order_reference_id': 1}))
+            for p in pend:
+                mismatches.append({'type': 'pending_reconcile', 'symbol': _norm(p.get('trading_symbol')),
+                                   'order_id': p.get('order_id'), 'order_reference_id': p.get('order_reference_id')})
         except Exception:
             pass
 
-        return {'success': True, 'healthy': False, 'mismatches': mismatches}
+        is_live = self.execution_mode == 'LIVE'
+        if not mismatches:
+            self._set_reconcile_block(False)  # healthy -> clear any prior block
+            status = 'healthy'
+        else:
+            status = 'blocked' if is_live else 'warning'
+            print(f"[reconcile] MISMATCH user={self.user_id}: {mismatches}")
+            if is_live:  # trip safety; never auto-correct
+                try:
+                    db.upsert_settings(self.user_id, {'kill_switch': True})
+                except Exception as e:
+                    print(f"[reconcile] kill-switch set failed: {e}")
+                self._set_reconcile_block(True)
+            try:
+                db.db['reconciliation_mismatch'].insert_one({
+                    'user_id': self.user_id, 'mismatches': mismatches,
+                    'execution_mode': self.execution_mode, 'created_at': get_ist_now(),
+                })
+            except Exception as e:
+                print(f"[reconcile] mismatch log failed: {e}")
+            try:
+                telegram_alert.send_kill_switch_alert(
+                    f"Reconciliation mismatch ({len(mismatches)}) for {self.user_id}: {mismatches}")
+            except Exception:
+                pass
+
+        report = {
+            'status': status, 'healthy': not mismatches, 'mismatch_count': len(mismatches),
+            'mismatches': mismatches, 'execution_mode': self.execution_mode,
+            'reconcile_blocked': bool(is_live and mismatches),
+            'last_checked_at': get_ist_now().isoformat(),
+        }
+        try:
+            db.save_reconciliation_report(self.user_id, dict(report))
+        except Exception as e:
+            print(f"[reconcile] report save failed: {e}")
+
+        return {'success': True, 'healthy': not mismatches, 'mismatches': mismatches, 'report': report}
 
     # =========================================================
     # 4. STATUS METHOD

@@ -43,6 +43,7 @@ class MongoDB:
         self.backtest_reports = self.db['backtest_reports']
         self.backtest_datasets = self.db['backtest_datasets']
         self.backtest_presets = self.db['backtest_presets']
+        self.reconciliation_reports = self.db['reconciliation_reports']
 
         self._create_indexes()
     
@@ -87,6 +88,7 @@ class MongoDB:
             self.backtest_trades.create_index([('run_id', ASCENDING), ('entry_bar', ASCENDING)])
             self.backtest_reports.create_index('run_id', unique=True)
             self.backtest_presets.create_index([('user_id', ASCENDING)])
+            self.reconciliation_reports.create_index([('user_id', ASCENDING), ('created_at', DESCENDING)])
 
             # Candles - Compound index for fast retrieval
             self.candles.create_index([('symbol', ASCENDING), ('interval', ASCENDING)])
@@ -482,6 +484,19 @@ class MongoDB:
 
     def get_backtest_report(self, run_id: str) -> Optional[Dict]:
         return self.backtest_reports.find_one({'run_id': run_id}, {'_id': 0})
+
+    # ==================== RECONCILIATION ====================
+    def save_reconciliation_report(self, user_id: str, report: Dict) -> bool:
+        report['user_id'] = user_id
+        report.setdefault('created_at', datetime.utcnow())
+        return self.reconciliation_reports.insert_one(report).acknowledged
+
+    def get_latest_reconciliation_report(self, user_id: str) -> Optional[Dict]:
+        doc = self.reconciliation_reports.find_one(
+            {'user_id': user_id}, {'_id': 0}, sort=[('created_at', DESCENDING)])
+        if doc and hasattr(doc.get('created_at'), 'isoformat'):
+            doc['created_at'] = doc['created_at'].isoformat()
+        return doc
 
 
 # Singleton instance
