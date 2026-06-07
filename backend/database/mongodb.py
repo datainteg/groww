@@ -63,6 +63,9 @@ class MongoDB:
             self.trades.create_index([('user_id', ASCENDING), ('created_at', DESCENDING)])
             self.trades.create_index([('strategy_id', ASCENDING)])
             self.trades.create_index([('status', ASCENDING)])
+            self.trades.create_index([('order_id', ASCENDING)])
+            self.trades.create_index([('order_reference_id', ASCENDING)])
+            self.trades.create_index([('order_status', ASCENDING)])
             
             # Signals
             self.signals.create_index([('created_at', DESCENDING)])

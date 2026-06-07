@@ -465,6 +465,12 @@ class TradingEngine:
         import uuid
         broker = self._get_broker()
 
+        # Idempotency: generate the reference id + sent timestamp BEFORE the broker
+        # call, so it survives an ambiguous/timed-out response and can be used for
+        # reconciliation. (Stored locally; Groww REST has no client-ref tag today.)
+        order_ref = uuid.uuid4().hex
+        sent_at = get_ist_now()
+
         # FIX 4: Unified order placement for both PAPER and LIVE
         result = broker.place_order(
             trading_symbol=trading_symbol,
@@ -474,9 +480,9 @@ class TradingEngine:
             product=product,  # FIX: Use 'product' not 'product_type'
             segment='FNO'
         )
-        
+
         if not result.get('success'):
-            return result
+            return {**result, 'order_reference_id': order_ref, 'order_state': 'REJECTED'}
         
         # FIX 5: Get execution price - handle both broker responses
         execution_price = (
@@ -504,9 +510,12 @@ class TradingEngine:
                     'option_type': option_type, 'transaction_type': 'BUY',
                     'quantity': quantity, 'entry_price': 0,
                     'order_id': result.get('order_id', ''),
-                    'order_reference_id': uuid.uuid4().hex,
+                    'order_reference_id': order_ref,
                     'status': 'PENDING_RECONCILE',
                     'order_status': 'UNKNOWN_RECONCILE_REQUIRED',
+                    'order_state': 'UNKNOWN_RECONCILE_REQUIRED',
+                    'reconcile_required': True,
+                    'sent_at': sent_at,
                     'execution_mode': self.execution_mode,
                     'entry_time': get_ist_now(), 'product': product,
                 })
@@ -534,8 +543,12 @@ class TradingEngine:
             'quantity': quantity,
             'entry_price': execution_price,
             'order_id': result.get('order_id', ''),
-            'order_reference_id': uuid.uuid4().hex,
+            'order_reference_id': order_ref,
             'order_status': 'COMPLETE',
+            'order_state': 'COMPLETE',
+            'reconcile_required': False,
+            'sent_at': sent_at,
+            'filled_at': get_ist_now(),
             'stop_loss': 0,
             'target': 0,
             'current_sl': 0,
