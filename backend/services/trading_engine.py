@@ -185,8 +185,28 @@ class TradingEngine:
              df['datetime'] = pd.to_datetime(df['timestamp'], unit='s')
         df.set_index('datetime', inplace=True)
 
+        # --- Feature-flagged: data-quality gate before analysis ---
+        # validate_candles is pure (no I/O).  Any import error, runtime error,
+        # or a module that is simply not present must NEVER block the trade loop.
+        try:
+            from analysis.data_quality import validate_candles as _validate  # lazy
+            _dq = _validate(candles, interval_min=5)
+            if not _dq.get('ok', True):
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "Data quality check failed for %s — skipping signal: %s",
+                    index_symbol, _dq.get('reason', '?')
+                )
+                return
+        except Exception as _dq_exc:
+            import logging as _log
+            _log.getLogger(__name__).debug(
+                "validate_candles error (ignored): %s", _dq_exc
+            )
+        # --- end data-quality gate ---
+
         signal_data = get_signal(df, index_symbol)
-        
+
         signal = signal_data.get('signal')  # BULLISH / BEARISH
         confidence = signal_data.get('confidence', 0)
 
@@ -346,7 +366,46 @@ class TradingEngine:
 
         quantity = strategy.get('quantity', 50)
         product = strategy.get('product', 'MIS')
-        
+
+        # --- Feature-flagged: risk-based position sizing ---
+        # Only active when settings.get('use_risk_sizing') is explicitly True.
+        # Keeps current quantity unchanged by default; any error falls back to
+        # the strategy quantity so live trading is never blocked by this path.
+        settings = self.settings or {}
+        if settings.get('use_risk_sizing'):
+            try:
+                from utils.position_sizing import position_size  # lazy import
+                capital = float(settings.get('capital', 0) or 0)
+                risk_pct_raw = float(settings.get('risk_pct', 0) or 0)
+                # Normalise percent storage (e.g. 1 => 0.01, 0.01 stays 0.01)
+                risk_pct = risk_pct_raw / 100.0 if risk_pct_raw > 1 else risk_pct_raw
+                sl_points = float(strategy.get('stop_loss', 0) or 0)
+                lot_size = int(strategy.get('lot_size', 0) or 0)
+                max_lots = strategy.get('max_lots')
+
+                if capital > 0 and risk_pct > 0 and sl_points > 0 and lot_size > 0:
+                    sizing = position_size(
+                        capital=capital,
+                        risk_pct=risk_pct,
+                        sl_points=sl_points,
+                        lot_size=lot_size,
+                        max_lots=int(max_lots) if max_lots is not None else None,
+                    )
+                    if sizing['lots'] > 0:
+                        quantity = sizing['quantity']
+                        print(
+                            f"[risk_sizing] {sizing['reason']} => qty={quantity} "
+                            f"(lots={sizing['lots']}, risk=₹{sizing['risk_amount']:.2f})"
+                        )
+                    else:
+                        print(
+                            f"[risk_sizing] sizing returned 0 lots ({sizing['reason']}); "
+                            "falling back to strategy quantity."
+                        )
+            except Exception as _sz_exc:
+                print(f"[risk_sizing] error (using strategy quantity): {_sz_exc}")
+        # --- end feature-flagged block ---
+
         # 2. Execute Order via broker
         broker = self._get_broker()
         

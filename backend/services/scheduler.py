@@ -203,6 +203,16 @@ class SchedulerService:
             replace_existing=True
         )
 
+        # 5. SIGNAL LABELLING (Every hour, Mon-Fri) — labels pending signal_log
+        #    docs with forward returns so the calibration model can be retrained.
+        #    Guarded by _has_leadership() inside the job body; never raises.
+        self.scheduler.add_job(
+            self.label_signals_job,
+            CronTrigger(minute=50, day_of_week='mon-fri'),
+            id='label_signals',
+            replace_existing=True
+        )
+
     def start(self):
         """Start the scheduler safely with user check + single-instance guard."""
         if self.scheduler.running:
@@ -451,18 +461,18 @@ class SchedulerService:
         """Daily summary at 3:35 PM via Telegram"""
         try:
             from services.telegram_alert import get_telegram_alert
-            
+
             print(f"[{get_ist_now()}] 📊 Generating daily summaries...")
             users = list(db.settings.find({'telegram_configured': True}))
-            
+
             for user_settings in users:
                 user_id = user_settings['user_id']
                 today_trades = db.get_today_trades(user_id)
-                
+
                 total_pnl = sum(t.get('pnl', 0) for t in today_trades if t.get('status') == 'CLOSED')
                 winning = len([t for t in today_trades if t.get('pnl', 0) > 0])
                 total_trades = len(today_trades)
-                
+
                 summary = {
                     'total_pnl': total_pnl,
                     'total_trades': total_trades,
@@ -470,9 +480,9 @@ class SchedulerService:
                     'win_rate': (winning / total_trades * 100) if total_trades > 0 else 0,
                     'execution_mode': config.EXECUTION_MODE
                 }
-                
+
                 db.save_daily_summary(user_id, get_ist_now().strftime('%Y-%m-%d'), summary)
-                
+
                 if user_settings.get('telegram_bot_token'):
                     telegram = get_telegram_alert(
                         user_settings.get('telegram_bot_token'),
@@ -481,6 +491,25 @@ class SchedulerService:
                     telegram.send_daily_summary(summary)
         except Exception as e:
             print(f"Daily summary error: {e}")
+
+    def label_signals_job(self):
+        """Hourly job: label pending signal_log docs with forward returns.
+
+        Delegates to scripts.label_signals.label_pending.  Guarded by
+        _has_leadership() so only the leader process runs it in a multi-worker
+        deployment.  The entire body is wrapped in try/except so a failure here
+        never propagates to the scheduler and never affects live trading.
+        """
+        # Only the leader process drives this job.
+        if not self._has_leadership():
+            return
+        try:
+            from scripts.label_signals import label_pending  # lazy import
+            n = label_pending(db, candle_service)
+            if n:
+                print(f"[{get_ist_now()}] label_signals_job: labeled {n} signal(s).")
+        except Exception as e:
+            print(f"label_signals_job error: {e}")
 
 
 # Global instance

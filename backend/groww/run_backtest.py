@@ -7,6 +7,7 @@ Edit the parameters below and run:
 No interactive prompts — just edit and run.
 """
 
+import os
 from nifty_scalper_bt import Config, Backtester, get_trading_dates
 
 
@@ -14,7 +15,8 @@ from nifty_scalper_bt import Config, Backtester, get_trading_dates
 # ✏️ EDIT YOUR PARAMETERS HERE
 # ============================================================================
 
-ACCESS_TOKEN = "eyJraWQiOiJaTUtjVXciLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjE3NzA0MjQyMDAsImlhdCI6MTc3MDQwMzQxOCwibmJmIjoxNzcwNDAzNDE4LCJzdWIiOiJ7XCJ0b2tlblJlZklkXCI6XCI5MDhhMDBiNS0zZjAwLTQ5NmMtYmE2Ni03YWFmMjc4Nzc3N2VcIixcInZlbmRvckludGVncmF0aW9uS2V5XCI6XCJlMzFmZjIzYjA4NmI0MDZjODg3NGIyZjZkODQ5NTMxM1wiLFwidXNlckFjY291bnRJZFwiOlwiNWZiNzBmZmQtN2M0NS00OTM4LWE4NDUtNmM3MWFhNWI2MmZlXCIsXCJkZXZpY2VJZFwiOlwiZTIyN2NjMmUtOGQwZS01NzVkLWFiMGYtZjgyMGEyYjQ3MzA0XCIsXCJzZXNzaW9uSWRcIjpcImFiZGNlNjAwLTc4ZmMtNDI5Yy05ODZkLWZhYjdkOThiY2I5YlwiLFwiYWRkaXRpb25hbERhdGFcIjpcIno1NC9NZzltdjE2WXdmb0gvS0EwYktUcStWVXpEM1F2aFJ5Mk9OMnYxdVZSTkczdTlLa2pWZDNoWjU1ZStNZERhWXBOVi9UOUxIRmtQejFFQisybTdRPT1cIixcInJvbGVcIjpcIm9yZGVyLWJhc2ljLGxpdmVfZGF0YS1iYXNpYyxub25fdHJhZGluZy1iYXNpYyxvcmRlcl9yZWFkX29ubHktYmFzaWNcIixcInNvdXJjZUlwQWRkcmVzc1wiOm51bGwsXCJ0d29GYUV4cGlyeVRzXCI6MTc3MDQyNDIwMDAwMH0iLCJpc3MiOiJhcGV4LWF1dGgtcHJvZC1hcHAifQ.RDLZu-srzpPLB22KB_FdKy9EhELXnldxQQdlNenDgfPXsv88iYqaH0nDk85UaTEMBECyLNAqCLlOoCEmPELwLg"
+# NEVER hardcode a token. Provide it at run time:  GROWW_ACCESS_TOKEN=... python run_backtest.py
+ACCESS_TOKEN = os.getenv("GROWW_ACCESS_TOKEN", "")
 
 # --- Option symbols ---
 CE_SYMBOL = "NIFTY2621025850CE"    # Change to your ATM CE
@@ -116,5 +118,9 @@ def run_parameter_sweep():
               f"{r.get('win_rate',0):>6.1f} {r.get('total_pnl_pts',0):>+8.2f} "
               f"{r.get('profit_factor',0):>6.2f}")
 
-# Uncomment to run sweep:
-run_parameter_sweep()
+# NOTE: run_parameter_sweep() is intentionally NOT called at import time (it would
+# fire a live backtest). Run it explicitly: `python run_backtest.py --sweep`.
+if __name__ == "__main__":
+    import sys
+    if "--sweep" in sys.argv:
+        run_parameter_sweep()

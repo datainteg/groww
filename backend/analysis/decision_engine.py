@@ -20,7 +20,55 @@ except Exception:  # keep analysis importable in isolation
     def get_ist_now():
         return _dt.now()
 
+# ---------------------------------------------------------------------------
+# Feature-flagged accuracy modules — lazy imports; never crash if absent.
+# ---------------------------------------------------------------------------
+import os as _os_flag
+try:
+    from .regime import detect_regime as _ext_detect_regime  # type: ignore[import]
+    # OPT-IN: the external regime classifier changes weight-profile selection and
+    # therefore the entry gate. Keep it OFF by default so live behavior is
+    # unchanged until validated in the backtest; enable with USE_REGIME_MODULE=true.
+    _HAVE_REGIME_MODULE = _os_flag.getenv('USE_REGIME_MODULE', 'false').lower() == 'true'
+except Exception:
+    _HAVE_REGIME_MODULE = False
+
+# Calibration model path (relative to this file so it works wherever the
+# package root lives).  The model is loaded once on first call and cached.
+import os as _os
+_CALIBRATION_MODEL_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)),
+    "..", "models", "calibration.json"
+)
+_calibration_model = None   # None => not yet attempted; False => failed/absent
+_calibration_loaded = False  # sentinel so we only attempt the load once
+
 logger = logging.getLogger(__name__)
+
+
+def _get_calibration_model():
+    """Lazily load the calibration model from JSON (once). Returns the
+    Calibrator instance if the file exists and is fitted, otherwise None.
+    Never raises — a missing/broken model file is treated as 'no model'."""
+    global _calibration_model, _calibration_loaded
+    if _calibration_loaded:
+        return _calibration_model
+    _calibration_loaded = True
+    try:
+        if not _os.path.isfile(_CALIBRATION_MODEL_PATH):
+            _calibration_model = None
+            return None
+        from .calibration import Calibrator  # type: ignore[import]
+        model = Calibrator.load(_CALIBRATION_MODEL_PATH)
+        _calibration_model = model if model.is_fitted else None
+        if _calibration_model is not None:
+            logger.info("Calibration model loaded from %s", _CALIBRATION_MODEL_PATH)
+        else:
+            logger.debug("Calibration model file exists but is unfitted — skipping p_win.")
+    except Exception as exc:
+        logger.debug("Could not load calibration model: %s", exc)
+        _calibration_model = None
+    return _calibration_model
 
 
 def to_python_type(obj):
@@ -111,7 +159,7 @@ class DecisionEngine:
 
             # 6. Regime first, then a regime-specific directional weight profile.
             #    Volatility informs the regime ONLY — never the confidence numerator.
-            market_regime = self._detect_regime(momentum, volatility_regime)
+            market_regime = self._detect_regime(momentum, volatility_regime, df=df)
             W = self.WEIGHT_PROFILES.get(market_regime, self.WEIGHTS)
 
             bullish_score = 0.0
@@ -184,7 +232,25 @@ class DecisionEngine:
                 "current_price": float(current_price),
                 "timestamp": get_ist_now().isoformat()
             }
-            
+
+            # --- Feature-flagged: calibrated P(win) via Calibrator model ---
+            # Exposed as an EXTRA field 'p_win' only when the model is loaded
+            # and fitted.  The existing 'confidence' gate is NEVER modified.
+            try:
+                _cal = _get_calibration_model()
+                if _cal is not None:
+                    import numpy as _np
+                    feat_vec = _np.array([[
+                        float(confidence),
+                        float(bullish_score),
+                        float(bearish_score),
+                        float(net),
+                    ]], dtype=_np.float64)
+                    p_win_arr = _cal.predict_proba(feat_vec)
+                    result["p_win"] = float(p_win_arr[0])
+            except Exception as _cal_exc:
+                logger.debug("p_win computation failed: %s", _cal_exc)
+
             self.last_analysis = result
             return to_python_type(result)
             
@@ -311,9 +377,34 @@ class DecisionEngine:
 
         return float(score), bool(confirmed), direction
 
-    def _detect_regime(self, momentum: Dict, volatility_regime: str) -> str:
+    def _detect_regime(self, momentum: Dict, volatility_regime: str,
+                        df: "pd.DataFrame | None" = None) -> str:
         """Classify the market regime to pick a directional weight profile.
-        High volatility => VOLATILE; strong ADX trend => TRENDING; else RANGING."""
+
+        Delegates to ``analysis.regime.detect_regime`` when that module is
+        available (feature-flagged).  Falls back to the original inline logic
+        on any import or runtime error so live trading is never affected by the
+        accuracy module's absence or a bug in it.
+
+        Args:
+            momentum: Momentum dict from ``calculate_all_momentum``.
+            volatility_regime: String regime label from ``_analyze_volatility``.
+            df: Optional OHLC DataFrame (closed bars) for the external module
+                to compute vol_ratio / ADX from raw data when pre-computed
+                values are not available.  May be None — the external module
+                degrades gracefully.
+        """
+        if _HAVE_REGIME_MODULE and df is not None:
+            try:
+                # Pass pre-computed ADX from the momentum dict to avoid
+                # double-computing it inside the external module.
+                adx_val = momentum.get('adx', {}).get('value')
+                adx_float = float(adx_val) if adx_val is not None else None
+                return _ext_detect_regime(df, adx_value=adx_float)
+            except Exception as exc:
+                logger.debug("regime.detect_regime failed, using fallback: %s", exc)
+
+        # --- Original inline fallback (unchanged behaviour) ---
         if volatility_regime == "HIGH":
             return "VOLATILE"
         adx_val = momentum.get('adx', {}).get('value')
