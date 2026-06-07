@@ -255,8 +255,17 @@ def run_backtest(
     target_points: float,
     slippage_pct: float = 0.0005,
     brokerage_per_order: float = 20.0,
+    proxy_premium_pct: float = 0.005,
 ) -> Dict[str, Any]:
     """Run an event-driven, bar-close backtest of a long-premium scalping strategy.
+
+    INDEX_PROXY cost realism: percentage charges (STT/exchange/GST) and slippage are
+    turnover-based, so they must be computed against a realistic OPTION premium, NOT
+    the index level. We therefore set the proxy entry "premium" to
+    ``entry_index * proxy_premium_pct`` (~0.5% of spot ≈ a near-ATM weekly premium).
+    Gross P&L stays ``directional_index_points * qty`` (independent of the premium
+    base), so only the cost/slippage base changes — previously using the index level
+    (~23,000) as the premium made charges ~100x too large and every trade lost.
 
     For each closed bar ``i`` the backtester calls ``decision_fn(candles[: i + 1])``
     so the decision function sees *only* already-closed candles -- no look-ahead.
@@ -397,6 +406,7 @@ def run_backtest(
                                 lots=sized["lots"],
                                 sl_points=sl_points,
                                 target_points=target_points,
+                                proxy_premium_pct=proxy_premium_pct,
                             )
 
     # ----- Force-close any position still open at the end of the data --------
@@ -553,6 +563,7 @@ def _open_trade(
     lots: int,
     sl_points: float,
     target_points: float,
+    proxy_premium_pct: float = 0.005,
 ) -> Dict[str, Any]:
     """Build the in-flight open-trade state for a freshly filled entry.
 
@@ -587,9 +598,10 @@ def _open_trade(
         "direction": direction,
         "confidence": _normalise_confidence(decision.get("confidence")),
         "entry_index": float(entry_index),
-        # Index-points proxy: the long-option entry "premium" is the entry index
-        # level. Replace with real option OHLC once premium data is wired.
-        "entry_premium": float(entry_index),
+        # Index-points proxy: cost/slippage turnover must use a REALISTIC option
+        # premium (~0.5% of spot), not the index level. Gross stays index-points
+        # based (directional_move * qty) since exit_premium = entry_premium + move.
+        "entry_premium": max(1.0, float(entry_index) * float(proxy_premium_pct)),
         "entry_bar": int(entry_bar),
         "entry_time": entry_time,
         "qty": int(qty),
