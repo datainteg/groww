@@ -28,6 +28,10 @@ dist/
 # ---- Backtest / generated output ----
 backend/groww/backtest_output/
 
+# ---- Agent tooling (local only) ----
+.agents/
+.claude/
+
 # ---- OS / IDE ----
 .DS_Store
 Thumbs.db
