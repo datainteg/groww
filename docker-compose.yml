@@ -1,0 +1,31 @@
+# Local infra for the Groww AI trading app.
+# Start Redis:   docker compose up -d redis
+# (MongoDB is included but commented — you already run it locally on 27017.)
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: groww-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - groww-redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # mongo:
+  #   image: mongo:7
+  #   container_name: groww-mongo
+  #   restart: unless-stopped
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - groww-mongo-data:/data/db
+
+volumes:
+  groww-redis-data:
+  # groww-mongo-data:
